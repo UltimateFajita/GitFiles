@@ -1,0 +1,560 @@
+C51 COMPILER V9.51   MAINCODE                                                              06/13/2016 10:09:30 PAGE 1   
+
+
+C51 COMPILER V9.51, COMPILATION OF MODULE MAINCODE
+OBJECT MODULE PLACED IN maincode.OBJ
+COMPILER INVOKED BY: C:\Keil\C51\BIN\c51.exe maincode.c DB OE BR INCDIR(C:\SiLabs\MCU\Inc)
+
+line level    source
+
+   1          //Can Bus Simulator
+   2          #include "c8051F040.h"
+   3          #include "stdlib.h"
+   4          #include "string.h"
+   5          #include "stdio.h"
+   6          #include "main.h"
+   7          #include "spi.h"
+   8          
+   9          CANFRAME xdata txframe;
+  10          CANFRAME xdata OneTime[TXBUFFS];
+  11          CANFRAME xdata rxframe0[RX0BUFFERS];
+  12          CANFRAME xdata rxframe1[RX1BUFFERS];
+  13          U32 xdata RxCAN1IDs[RX1BUFFERS];
+  14          U8 xdata MaxMesgs,MaxRxTraps;
+  15          
+  16          MSGTABLE xdata *Mesgs;
+  17          U8 xdata MesgCnt;
+  18          BUTTABLE xdata *Buttons;
+  19          U8 xdata ButtCnt;
+  20          RxMESG xdata *RxMesg;
+  21          U8 xdata RxCnt;
+  22          U16 xdata RelayCnf[4];
+  23          U8 xdata RelayChange;
+  24          extern U8 xdata RxBuffCnt[2];
+  25          
+  26          U32 keys,keyChange;
+  27          bit CANintMode,RxCAN0,RxCAN1;
+  28          extern U32 msticks;
+  29          
+  30          void main(void) 
+  31          { 
+  32   1              WDTCN = 0xde;                           // disable watchdog timer
+  33   1              WDTCN = 0xad;
+  34   1      
+  35   1              config_IO();                            // configure Port I/O
+  36   1              Oscillator_Init();                      // switch to external oscillator
+  37   1              //======================================================
+  38   1      
+  39   1              
+  40   1              SPI_init();                                     // Enable SPI for CAN1 port
+  41   1              CAN1begin(CAN_500KBPS);         // Initialize CAN1 at 500k
+  42   1      
+  43   1              //======================================================
+  44   1                                                                      // active low   // 0 means CAN B, 1 means CAN C/I
+  45   1              SEL_CAN_C = 1;                          // Enable Port#1, bit#7 to SelectCAN_B 
+  46   1              config_CAN_timing(125);         // Function call to start CAN
+  47   1      
+  48   1              EIE2  = 0x20;                           // Enable CAN Interrupt
+  49   1              EIP2 |= 0x20;                           // Set CAN Interrupt Priority: HIGH 
+  50   1      
+  51   1              // Function call to start CAN
+  52   1              SFRPAGE = CAN0_PAGE;
+  53   1              CAN0CN  = 0x0A; // Enables Int's, Error and IE (rx or tx)
+  54   1              //=====================================================================
+  55   1      
+C51 COMPILER V9.51   MAINCODE                                                              06/13/2016 10:09:30 PAGE 2   
+
+  56   1              ClearUserVars();
+  57   1              //======================================================
+  58   1      
+  59   1              //Start Timer3 generating 1ms interupt
+  60   1              Start_Timer3(1000000/998);      // adjust 998 value to get timeing exact
+  61   1              //======================================================
+  62   1      
+  63   1              //Global enable 8051 interrupts
+  64   1              EA = 1;
+  65   1              mSecDelay(2);
+  66   1              LED1 = 0;
+  67   1      
+  68   1              while(1)
+  69   1                      {
+  70   2                      switch(keys & 0xF)
+  71   2                      {
+  72   3                              case 1:
+  73   3                                      User1();
+  74   3                                      break;
+  75   3                              case 2:
+  76   3                                      User2();
+  77   3                                      break;
+  78   3                              case 3:
+  79   3                                      User3();
+  80   3                                      break;
+  81   3                              case 4:
+  82   3                                      User4();
+  83   3                                      break;
+  84   3                              case 5:
+  85   3                                      User5();
+  86   3                                      break;
+  87   3                              case 6:
+  88   3                                      User6();
+  89   3                                      break;
+  90   3                              case 7:
+  91   3                                      User7();
+  92   3                                      break;
+  93   3                              case 8:
+  94   3                                      User8();
+  95   3                                      break;
+  96   3                      }
+  97   2      
+  98   2                      // check if a relay is set to prog selector
+  99   2                      for (RxCnt = 0 ; RxCnt < 4; RxCnt++)
+ 100   2                              if ((RelayCnf[RxCnt] & 0xF00) == REL_PROG)      // Relay controled by PROG Select
+ 101   2                                      if ((RelayCnf[RxCnt]&0xFF) == (keys&0xF))       // matching Prog select
+ 102   2                                              RelayChange |= 1<<RxCnt;                        // flag for relay change
+ 103   2      
+ 104   2                      keyChange &= ~0xF;
+ 105   2      
+ 106   2                      ClearUserVars();
+ 107   2              }
+ 108   1      }
+ 109          
+ 110          U8 MemManage(U8 Bcnt,U8 Mcnt,U8 Rcnt,U16 FirstAddress)
+ 111          {
+ 112   1              if ((Bcnt*sizeof(BUTTABLE) + Mcnt*sizeof(MSGTABLE) + Rcnt*sizeof(RxMESG)) < (0x1000-FirstAddress))
+ 113   1              {
+ 114   2                      Buttons = (BUTTABLE xdata *)FirstAddress;
+ 115   2                      Mesgs = (MSGTABLE xdata *)(FirstAddress + sizeof(BUTTABLE)*Bcnt);
+ 116   2                      RxMesg = (RxMESG xdata *)(FirstAddress + sizeof(BUTTABLE)*Bcnt+Mcnt*sizeof(MSGTABLE));
+ 117   2                      return(1);
+C51 COMPILER V9.51   MAINCODE                                                              06/13/2016 10:09:30 PAGE 3   
+
+ 118   2              }
+ 119   1              else
+ 120   1                      return(0);
+ 121   1      }
+ 122          
+ 123          void ClearUserVars()
+ 124          {
+ 125   1              U8 i,j;
+ 126   1              
+ 127   1              for (i = 0 ; i < 3 ; i++)
+ 128   1              {
+ 129   2                      OneTime[i].MsgNum = 0;
+ 130   2                      OneTime[i].arbID = 0;
+ 131   2                      OneTime[i].sz = 0;
+ 132   2                      for (j = 0 ; j < 8 ; j++)
+ 133   2                              OneTime[i].cdat[j] = 0;
+ 134   2              }
+ 135   1      
+ 136   1              RxCAN1 = 0;
+ 137   1              RxCAN0 = 0;
+ 138   1      
+ 139   1              RELAY1 = 0;
+ 140   1              RELAY2 = 0;
+ 141   1              RelayChange = 0;
+ 142   1              for (i = 0 ; i < 4 ; i++)
+ 143   1                      RelayCnf[i] = 0;
+ 144   1      
+ 145   1              clear_message_object(0,1,RX0BUFFERS-1); // Clear CAN0 RAM
+ 146   1              clear_message_object(1,0,RX1BUFFERS);   // Clear CAN1 RAM
+ 147   1      
+ 148   1              MesgCnt = 0;
+ 149   1              ButtCnt = 0;
+ 150   1              RxCnt = 0;
+ 151   1              RxBuffCnt[0] = 1;
+ 152   1              RxBuffCnt[1] = 0;
+ 153   1      }
+ 154                  
+ 155          void config_IO(void)
+ 156          {
+ 157   1              char SFRPAGE_SAVE = SFRPAGE;
+ 158   1      
+ 159   1              SFRPAGE  = CONFIG_PAGE;
+ 160   1              
+ 161   1              XBR0     = 0x02;        // enable SPI interface
+ 162   1              XBR1     = 0x04;        // enable INT0 CAN1 interrupt via SPI
+ 163   1              XBR2     = 0x40;        // enable crossbar and disable weak pullups
+ 164   1              XBR3     = 0x80;    // Configure CAN TX pin (CTX) as push-pull digital output
+ 165   1              
+ 166   1              P0MDOUT  = 0x8F;        // pin p7,3,2,1,0 push-pull, p4,5,6 are open drain outputs
+ 167   1              
+ 168   1              P1MDIN   = 0xff;        // All inputs col 1-8
+ 169   1              P1MDOUT  = 0x00;        // Port 1 is open drain as inputs
+ 170   1      
+ 171   1              P2MDIN  |= 0xF3;        // p0,1,4,5,6,7 inputs
+ 172   1              P2MDOUT  = 0x0C;        // p2,3 is push pull    
+ 173   1              
+ 174   1              P3MDIN  |= 0x0F;        // p0,1,2,3 inputs
+ 175   1              P3MDOUT  = 0x30;        // p4,5 is push pull (relay drivers), p6,p7 open drain outputs  
+ 176   1      
+ 177   1              SFRPAGE  = SFRPAGE_SAVE;
+ 178   1      }
+ 179          
+C51 COMPILER V9.51   MAINCODE                                                              06/13/2016 10:09:30 PAGE 4   
+
+ 180          void CheckRelay()
+ 181          {
+ 182   1              U8 i;
+ 183   1              bit Invert;
+ 184   1      
+ 185   1              for (i = 0 ; i < 4; i++)
+ 186   1              {
+ 187   2                      Invert = (RelayCnf[i] & REL_NOT)?(1):(0);
+ 188   2      
+ 189   2                      if ((RelayChange>>(i+4))&1)                     // left on last pass turn off now
+ 190   2                      {
+ 191   3                              RelayCtrl(i+1,0^Invert);
+ 192   3                              RelayChange &= ~(0x10<<i);              // clear Off flag
+ 193   3                      }
+ 194   2                      if ((RelayChange>>i)&1)
+ 195   2                      {
+ 196   3                              if (RelayCnf[i] & REL_TOG)              // toggle?
+ 197   3                                      RelayCtrl(i+1,2);
+ 198   3                              else
+ 199   3                              {
+ 200   4                                      RelayCtrl(i+1,1^Invert);
+ 201   4                                      if (RelayCnf[i] & REL_PULSE)    // auto off or pulsed
+ 202   4                                              RelayChange |= 0x10<<i;         // set flag to zero next pass
+ 203   4                              }
+ 204   3                              RelayChange &= ~(1<<i);                 // clear On flag
+ 205   3                      }
+ 206   2              }
+ 207   1      }
+ 208          
+ 209          void CheckButts()
+ 210          {
+ 211   1              U8 button;
+ 212   1              U8 i,j,x;
+ 213   1              U8 value[8];
+ 214   1              U32 changebits;
+ 215   1      
+ 216   1              changebits = keyChange>>8;
+ 217   1      
+ 218   1              for (button = 0 ; button < 20 && !(changebits & 1) ; button++)
+ 219   1                      changebits = changebits>>1;
+ 220   1      
+ 221   1              for (i = 0 ; i < ButtCnt && (Buttons+i)->button != button; i++);                // i=index to correct Button
+ 222   1      
+ 223   1              if (i < ButtCnt)
+ 224   1              {
+ 225   2                      // check if a relay is set to this button
+ 226   2                      for (j = 0 ; j < 4; j++)
+ 227   2                              if ((RelayCnf[j] & 0xF00) == REL_BUTT)  // Relay controled by button
+ 228   2                                      if ((RelayCnf[j]&0xFF) == button)       // matching button
+ 229   2                                              if (!(RelayCnf[j] & REL_TOG) || ((keys>>(8+button))&1))
+ 230   2                                                      RelayChange |= 1<<j;                    // flag for relay change
+ 231   2      
+ 232   2                      for (j = 0 ; j < MesgCnt && (Mesgs+j)->ID != (Buttons+i)->ID; j++);     // j=index to correct Message
+ 233   2      
+ 234   2                      if (j < MesgCnt)                                // found matching Repetative message, modify it.
+ 235   2                      {
+ 236   3                              if (keys>>(8+button) & 1)       // button was pressed
+ 237   3                              {
+ 238   4                                      for (x = 0 ; x < (Mesgs+j)->cnt ; x++)
+ 239   4                                              value[x] = ((Mesgs+j)->dat[x] & (Buttons+i)->mask[x]) | (Buttons+i)->value[x];
+ 240   4                                      AlterMessageByte(0,(Mesgs+j)->ID,0,value,x,(Buttons+i)->cnt);
+ 241   4                              }               
+C51 COMPILER V9.51   MAINCODE                                                              06/13/2016 10:09:30 PAGE 5   
+
+ 242   3                              else                                            // button released
+ 243   3                              {                                                       // check if held data then restore
+ 244   4                                      if ((Mesgs+j)->Altered == 0xFF)
+ 245   4                                      {
+ 246   5                                              for (x = 0 ; x < (Mesgs+j)->cnt ; x++)
+ 247   5                                                      (Mesgs+j)->dat[x] = (Mesgs+j)->Restore[x];
+ 248   5                                              (Mesgs+j)->Altered = 0;
+ 249   5                                      }
+ 250   4                              }
+ 251   3      
+ 252   3                              keyChange &= ~((U32)1<<(button+8));     // clear the button, it's processed
+ 253   3                      }
+ 254   2                      else                                                    // no matching Repeatitive message found, oneTime it. 
+ 255   2                      {
+ 256   3                              if (keys>>(8+button) & 1)       // button was pressed
+ 257   3                              {
+ 258   4                                      for (j = 0 ; j < TXBUFFS & OneTime[j].arbID ; j++);
+ 259   4                                      if (j < TXBUFFS)                                // empty one time available
+ 260   4                                      {
+ 261   5                                              for (x = 0 ; x < 8 ; x++)
+ 262   5                                                      OneTime[j].cdat[x] = (Buttons+i)->value[x];
+ 263   5                                              OneTime[j].sz = 8;
+ 264   5                                              OneTime[j].arbID = (Buttons+i)->ID;
+ 265   5      
+ 266   5                                              keyChange &= ~((U32)1<<(button+8));     // clear the button, it's processed
+ 267   5                                      }
+ 268   4                              }
+ 269   3                      }
+ 270   2              }
+ 271   1      }
+ 272          
+ 273          // ProcessRx - new message in, do something with it
+ 274          // port duh
+ 275          // index of rxframe
+ 276          void ProcessRx(U8 port,U8 index)
+ 277          {
+ 278   1              U8 i,j,x;
+ 279   1              U8 value[8];
+ 280   1              U8 RxMsg;
+ 281   1              CANFRAME *rx;
+ 282   1              bit test=1;
+ 283   1      
+ 284   1              if (!port)
+ 285   1                      rx = &rxframe0;
+ 286   1              else
+ 287   1                      rx = &rxframe1;
+ 288   1      
+ 289   1              RxMsg = index;
+ 290   1              if (port)
+ 291   1                      RxMsg |= 0x80;
+ 292   1              
+ 293   1              // index to RxMesg instructions
+ 294   1              for (i = 0 ; i < RxCnt && (RxMesg+i)->RxNum != RxMsg ; i++);    
+ 295   1      
+ 296   1              if (i < RxCnt)
+ 297   1              {
+ 298   2                      do
+ 299   2                      {
+ 300   3                              if (!test)      // first pass failed re-index
+ 301   3                              {
+ 302   4                                      // re-index to next matching RxMesg
+ 303   4                                      for (i++ ; i < RxCnt && (RxMesg+i)->RxNum != RxMsg ; i++);
+C51 COMPILER V9.51   MAINCODE                                                              06/13/2016 10:09:30 PAGE 6   
+
+ 304   4                                      if (i < RxCnt) test = 1;        
+ 305   4                              }
+ 306   3              
+ 307   3                              for (j = 0 ; j < (RxMesg+i)->incnt && test; j++)
+ 308   3                                      if (((rx+index)->cdat[j] & (RxMesg+i)->inMask[j]) != (RxMesg+i)->inValue[j])
+ 309   3                                              test = 0;       // non-matching do nothing
+ 310   3      
+ 311   3                      } while (!test && i<RxCnt);             // if failed look again
+ 312   2      
+ 313   2                      if (test)
+ 314   2                      {
+ 315   3                              for (j = 0 ; j < 4; j++)
+ 316   3                                      if ((RelayCnf[j] & 0xF00) == REL_RX)    // Relay controled by RxMesg
+ 317   3                                              if ((RelayCnf[j]&0xFF) == i)            // outputing correct message
+ 318   3                                                      RelayChange |= 1<<j;                    // flag for relay change
+ 319   3      
+ 320   3                              for (j = 0 ; j < MesgCnt && (Mesgs+j)->ID != (RxMesg+i)->outID; j++);   // j=index to correct Message
+ 321   3      
+ 322   3                              if (j < MesgCnt)                                // found matching Repetative message, modify it.
+ 323   3                              {
+ 324   4                                      for (x = 0 ; x < (Mesgs+j)->cnt ; x++)
+ 325   4                                              value[x] = ((Mesgs+j)->dat[x] & (RxMesg+i)->outMask[x]) | (RxMesg+i)->outValue[x];
+ 326   4                                      AlterMessageByte(port,(Mesgs+j)->ID,0,value,x,(RxMesg+i)->altercnt);
+ 327   4                              }
+ 328   3                              else                                                    // no matching Repeatitive message found, oneTime it. 
+ 329   3                              {
+ 330   4                                      for (j = 0 ; j < TXBUFFS & OneTime[j].arbID ; j++);
+ 331   4                                      if (j < TXBUFFS)                                // empty one time available
+ 332   4                                      {
+ 333   5                                              for (x = 0 ; x < (RxMesg+i)->outcnt ; x++)
+ 334   5                                                      OneTime[j].cdat[x] = (RxMesg+i)->outValue[x];
+ 335   5                                              OneTime[j].sz = (RxMesg+i)->outcnt;
+ 336   5                                              OneTime[j].arbID = (RxMesg+i)->outID;
+ 337   5                                      }
+ 338   4                              }
+ 339   3                      }
+ 340   2              }
+ 341   1      }
+ 342          
+ 343          // used to start a repeating message on the bus
+ 344          // port > can port 0 or 1
+ 345          // ID > can ID
+ 346          // Rate > the cyclic timing of the message in milliseconds
+ 347          // cnt > bytes of message 1-8
+ 348          // dat[] > data bytes to output
+ 349          U8 AddMessage(U8 port,U32 ID,U16 Rate,U8 cnt,U8 dat[8])
+ 350          {
+ 351   1              U8 i;
+ 352   1      
+ 353   1              if (port) ID |= PORTFLG;
+ 354   1      
+ 355   1              (Mesgs+MesgCnt)->ID = ID;
+ 356   1              (Mesgs+MesgCnt)->Rate = Rate;
+ 357   1              (Mesgs+MesgCnt)->ticks = 0;
+ 358   1              (Mesgs+MesgCnt)->cnt = cnt;
+ 359   1              for (i = 0 ; i < cnt ; i++)
+ 360   1              {
+ 361   2                      (Mesgs+MesgCnt)->dat[i] = dat[i];
+ 362   2                      (Mesgs+MesgCnt)->Restore[i] = dat[i];
+ 363   2              }
+ 364   1              (Mesgs+MesgCnt)->Altered = 0;   // non altered data
+ 365   1      
+C51 COMPILER V9.51   MAINCODE                                                              06/13/2016 10:09:30 PAGE 7   
+
+ 366   1              if (MesgCnt < MaxMesgs)
+ 367   1                      MesgCnt++;
+ 368   1      
+ 369   1              return (MesgCnt-1);
+ 370   1      }
+ 371          
+ 372          // Used to Alter a Repeating messages data bytes.
+ 373          // port > can port 0 or 1
+ 374          // ID > can ID
+ 375          // index > starting data byte to alter
+ 376          // *value > pointer to first new data value
+ 377          // numbytes > number of bytes to alter
+ 378          // count > is number of times to repeat / hold new values on bus. 
+ 379          void AlterMessageByte(U8 port,U32 ID,U8 index,U8 *value,U8 numbytes,U8 count)
+ 380          {
+ 381   1              U8 i,j;
+ 382   1              
+ 383   1              if (port) ID |= PORTFLG;
+ 384   1      
+ 385   1              for (i = 0 ; i < MesgCnt && ID != (Mesgs+i)->ID; i++);
+ 386   1      
+ 387   1              if (i < MesgCnt)                                        // message found
+ 388   1              {
+ 389   2                      for (j = 0 ; j < numbytes && (index+j) < 8; j++)
+ 390   2                      {
+ 391   3                              (Mesgs+i)->dat[index+j] = *(value+j);           // alter the data value
+ 392   3                              if (count)
+ 393   3                                      (Mesgs+i)->Altered = count;                             // number of Tx's to alter before restoring (0 permanant)
+ 394   3                              else
+ 395   3                                      (Mesgs+i)->Restore[index+j] = *(value+j);       // permanant alter
+ 396   3                      }
+ 397   2              }
+ 398   1      }
+ 399          
+ 400          //      Used to configure each button
+ 401          // button = 0-19  (upper right is 0, upper left is 9, lower left is 19
+ 402          // port > can port 0 or 1
+ 403          // ID > can ID
+ 404          // mask > is ANDed with current data then,
+ 405          // value > is ORed with current data
+ 406          // count > is number of times to repeat / hold new values on bus. 
+ 407          U8 SimpleButtonConfig(U8 button,U8 port,U32 ID,U8 mask[8],U8 value[8],count)
+ 408          {
+ 409   1              U8 i;
+ 410   1      
+ 411   1              if (port) ID |= PORTFLG;
+ 412   1      
+ 413   1              (Buttons+ButtCnt)->button = button;
+ 414   1              (Buttons+ButtCnt)->ID = ID;
+ 415   1              (Buttons+ButtCnt)->cnt = count;
+ 416   1              for (i = 0 ; i < 8 ; i++)
+ 417   1              {
+ 418   2                      (Buttons+ButtCnt)->mask[i] = mask[i];
+ 419   2                      (Buttons+ButtCnt)->value[i] = value[i];
+ 420   2              }
+ 421   1              if (ButtCnt < MAXBUTTONS)
+ 422   1                      ButtCnt++;
+ 423   1      
+ 424   1              return (ButtCnt-1);
+ 425   1      }
+ 426          
+ 427          // Used to configure the recieve side of a RxMessage filter/trap
+C51 COMPILER V9.51   MAINCODE                                                              06/13/2016 10:09:30 PAGE 8   
+
+ 428          // port - 0 or 1
+ 429          // ID is ID
+ 430          // mask[] - 0's mean don't cares, 1's mean match bits
+ 431          // value[] -> matching value after mask off above
+ 432          // count > input message byte count.
+ 433          // returns index for use by 2nd half 
+ 434          U8 RxMessageConfig1(U8 port,U32 ID,U8 mask[8],U8 value[8],U8 count)
+ 435          {
+ 436   1              U8 i;
+ 437   1      
+ 438   1              (RxMesg+RxCnt)->RxNum = initRxFrameID(port, ID);        // Rx for both CAN ports
+ 439   1      
+ 440   1              (RxMesg+RxCnt)->incnt = count;
+ 441   1              for (i = 0 ; i < count ; i++)
+ 442   1              {
+ 443   2                      (RxMesg+RxCnt)->inMask[i] = mask[i];
+ 444   2                      (RxMesg+RxCnt)->inValue[i] = value[i];
+ 445   2              }
+ 446   1              
+ 447   1              if (RxCnt < MaxRxTraps)
+ 448   1                      RxCnt++;
+ 449   1      
+ 450   1              return (RxCnt-1);
+ 451   1      }
+ 452          // 2nd half of above used to configure output message of a RxMessage filter trap
+ 453          // (too many variables passed in one routine)
+ 454          // index of which RxMesg filter, passed from 1st half
+ 455          // outport - output message on port 0 or 1
+ 456          // outID = output CAN ID
+ 457          // outmask > is ANDed with current data then,
+ 458          // outvalue > is ORed with current data
+ 459          // count number of bytes in output message
+ 460          void RxMessageConfig2(U8 index,U8 outport,U32 outID,U8 outmask[8],U8 outvalue[8],U8 count,U8 altercount)
+ 461          {
+ 462   1              U8 i;
+ 463   1      
+ 464   1              if (outport) outID |= PORTFLG;
+ 465   1              (RxMesg+index)->outID = outID;
+ 466   1              (RxMesg+index)->outcnt = count;
+ 467   1              (RxMesg+index)->altercnt = altercount;
+ 468   1              for (i = 0 ; i < count ; i++)
+ 469   1              {
+ 470   2                      (RxMesg+index)->outMask[i] = outmask[i];
+ 471   2                      (RxMesg+index)->outValue[i] = outvalue[i];
+ 472   2              }
+ 473   1      }
+ 474          
+ 475          
+ 476          /*********************************************************************************************************
+ 477          ** Function name:           RelayCtrl
+ 478          ** Descriptions:            turn on / off Relay pins
+ 479          *********************************************************************************************************/
+ 480          void RelayCtrl(U8 num,U8 type)
+ 481          {
+ 482   1              U8 relay=0;
+ 483   1              static bit R3,R4;
+ 484   1      
+ 485   1              switch (num)
+ 486   1              {
+ 487   2                      case 1:
+ 488   2                              if (type > 1)
+ 489   2                                      RELAY1 ^= 1;
+C51 COMPILER V9.51   MAINCODE                                                              06/13/2016 10:09:30 PAGE 9   
+
+ 490   2                              else
+ 491   2                                      RELAY1 = type;
+ 492   2                              break;
+ 493   2                      case 2:
+ 494   2                              if (type > 1)
+ 495   2                                      RELAY2 ^= 1;
+ 496   2                              else
+ 497   2                                      RELAY2 = type;
+ 498   2                              break;
+ 499   2                      case 3:
+ 500   2                              if (type > 1)
+ 501   2                                      R3 ^= 1;
+ 502   2                              else
+ 503   2                                      R3 = type;
+ 504   2      
+ 505   2                              relay = 0x10;
+ 506   2                              type = ((U8)R3)<<4;
+ 507   2                              break;
+ 508   2                      case 4:
+ 509   2                              if (type > 1)
+ 510   2                                      R4 ^= 1;
+ 511   2                              else
+ 512   2                                      R4 = type;
+ 513   2      
+ 514   2                              relay = 0x20;
+ 515   2                              type = ((U8)R4)<<5;
+ 516   2                              break;
+ 517   2              }
+ 518   1      
+ 519   1              if (relay)
+ 520   1                      CAN1modifyRegister(MCP_BFPCTRL,relay,type);
+ 521   1      }
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =   4319    ----
+   CONSTANT SIZE    =   ----    ----
+   XDATA SIZE       =    806    ----
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =     14     107
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =      5       2
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)
