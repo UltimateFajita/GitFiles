@@ -1,0 +1,1303 @@
+C51 COMPILER V9.51   VP4_K4_V1_3_W_SWS                                                     07/19/2016 07:12:01 PAGE 1   
+
+
+C51 COMPILER V9.51, COMPILATION OF MODULE VP4_K4_V1_3_W_SWS
+OBJECT MODULE PLACED IN VP4 K4 v1.3 w SWS.OBJ
+COMPILER INVOKED BY: C:\Keil\C51\BIN\c51.exe VP4 K4 v1.3 w SWS.c DB OE BR INCDIR(C:\SiLabs\MCU\Inc)
+
+line level    source
+
+   1          //Can Bus Simulator
+   2          //See function radtest for transmitting data
+   3          
+   4          
+   5          #include "c8051F040.h"  
+   6          #include "KL_telematics.h"                                              
+   7          #include <stdlib.h>
+   8          #include <string.h>
+   9          #include <stdio.h>
+  10          
+  11          sbit LED1 = P2^0;                                               // led output pin 
+  12          sbit VR_BUTTON          = P1^4;                         // sw1 = 0 means switch pressed
+  13          sbit PH_BUTTON          = P1^3;                         // sw2 = 0 means switch pressed
+  14          sbit PH_BUTTON_END      = P1^2;
+  15          
+  16          // IGNITION SWITCHES
+  17          sbit IGN_RUN_0          = P1^5;                         // sw3 = 0 means switch pressed
+  18          sbit IGN_RUN_5          = P0^6;
+  19          sbit IGN_RUN_10         = P0^5;                         // sw4 = 0 means switch pressed
+  20          sbit IGN_START          = P1^0;
+  21          sbit IGN_OFF            = P0^7;                         // sw5 = 0 means switch pressed
+  22          sbit IGN_ACC            = P1^1;                         // sw6 = 0 means switch pressed
+  23          
+  24          // STEERING WHEEL SWITCHES
+  25          sbit VOL_UP                     = P3^4;
+  26          sbit VOL_DWN            = P3^5;
+  27          sbit SEEK_UP            = P3^6;
+  28          sbit SEEK_DWN           = P3^7;
+  29          sbit MODE                       = P3^2;
+  30          sbit PRESET                     = P3^3;
+  31          
+  32          sbit SEL_CAN_B = P1^7;                                  // CAN select pin 0 means can B, 1 means CAN c/i
+  33          sbit CAN_B_EN  = P1^6;                                  // CAN B enable pin,  0 means enable, 1 means disable
+  34          
+  35          
+  36          
+  37          struct txframe
+  38          {
+  39                  unsigned char MsgNum;
+  40                  unsigned char sz;
+  41                  unsigned long arbID;
+  42                  unsigned char cdat[8];
+  43          
+  44          }txframe;
+  45          CANFRAME xdata rxframe[32];
+  46          
+  47          byte xdata IntReg;
+  48          char MsgNum;
+  49          char status;
+  50          int i;
+  51          int v;
+  52          int j = 0;
+  53          int h;
+  54          int ii = 0;
+  55          int iii = 0;
+C51 COMPILER V9.51   VP4_K4_V1_3_W_SWS                                                     07/19/2016 07:12:01 PAGE 2   
+
+  56          int count1 = 0;
+  57          int flag_eng = 1;
+  58          int flag_spa = 0;
+  59          int flag_ger = 0;
+  60          int flag_fre = 0;
+  61          int flag_ita = 0;
+  62          int flag_jap = 0;
+  63          int flag_chs = 0;
+  64          int flag_cht = 0;
+  65          
+  66          void config_CAN_timing(void);
+  67          void config_IO(void);
+  68          void receive_data(char MsgNum);
+  69          void clear_msg_objects(void);
+  70          void radiotest(void);
+  71          void codedelay(unsigned int delay);
+  72          void clear_message_object (unsigned char mesgobj,unsigned char count);
+  73          void onehundredms(void);
+  74          void shortdelay(void);
+  75          
+  76          void init_msg_object_rx (unsigned char MsgNum, unsigned int arbID);
+  77          void check_lang(void);
+  78          void lang_cfg(void);
+  79          void SWS_CUSW(void);
+  80          void IGN_MSG(void);
+  81          
+  82          
+  83          
+  84          
+  85          void main(void) 
+  86          {
+  87   1        
+  88   1        SEL_CAN_B = 1;
+  89   1        CAN_B_EN  = 1;
+  90   1        LED1      = 1;
+  91   1        v = 0;
+  92   1        // disable watchdog timer
+  93   1        WDTCN = 0xde;
+  94   1        WDTCN = 0xad;
+  95   1          XBR0 = 0;                                                           // nothing used
+  96   1              XBR1 = 0;                                                               // nothing used
+  97   1              
+  98   1              P4MDOUT = 0x00;
+  99   1              P5MDOUT = 0x00; 
+ 100   1              P6MDOUT = 0x00;
+ 101   1              P7MDOUT = 0x00;
+ 102   1      
+ 103   1              
+ 104   1              
+ 105   1        //configure Port I/O
+ 106   1        config_IO();
+ 107   1      
+ 108   1      
+ 109   1              ////////////////////////////////////////
+ 110   1              // switch to external oscillator
+ 111   1              ////////////////////////////////////////
+ 112   1              SFRPAGE = CONFIG_PAGE;                          // switch to config page to config oscillator
+ 113   1              OSCXCN = 0x67;                                  // start external oscillator; 18.0/24.0 MHz Crystal
+ 114   1              codedelay(255);                                                 // delay about 1ms  
+ 115   1              while ((OSCXCN & 0x80) == 0);   
+ 116   1              CLKSEL |= 0x01;                                 // switch to external oscillator
+ 117   1      
+C51 COMPILER V9.51   VP4_K4_V1_3_W_SWS                                                     07/19/2016 07:12:01 PAGE 3   
+
+ 118   1      
+ 119   1        // Clear CAN RAM
+ 120   1        clear_msg_objects();
+ 121   1      
+ 122   1      
+ 123   1        //Function call to start CAN
+ 124   1        
+ 125   1        config_CAN_timing();
+ 126   1      
+ 127   1      
+ 128   1        clear_message_object(1,32);
+ 129   1              EIE2 = 0x20;
+ 130   1              EIP2 |= 0x20;                                                   // set priority high 
+ 131   1      
+ 132   1              //Function call to start CAN
+ 133   1              SFRPAGE = CAN0_PAGE;
+ 134   1              CAN0CN = 0x0A;                                                  //Enables Int's, Error and IE (rx or tx)
+ 135   1      
+ 136   1                                                                      // Enable Global Interrupts
+ 137   1              /*
+ 138   1              SFRPAGE = IE;                                   // Configure all Interrupt registers
+ 139   1              IE = 0x80;
+ 140   1              SFRPAGE = EIE1;
+ 141   1              EIE1 = 0x00;
+ 142   1              SFRPAGE = EIE2;
+ 143   1              EIE2 = 0x20;
+ 144   1              */
+ 145   1      
+ 146   1              init_msg_object_rx(30, 0x08A);
+ 147   1              rxframe[1].MsgNum = 0;
+ 148   1      
+ 149   1        //Loop and wait for interrupts
+ 150   1        while (1)
+ 151   1          {
+ 152   2                      
+ 153   2      
+ 154   2                      IGN_MSG();
+ 155   2                      if (IGN_RUN_0 == 0)
+ 156   2                      {
+ 157   3                              radiotest();
+ 158   3                              iii = 0;
+ 159   3                      }
+ 160   2      
+ 161   2                      
+ 162   2              }           
+ 163   1      }
+ 164          
+ 165          
+ 166          
+ 167          
+ 168          
+ 169          
+ 170          
+ 171          byte tx_can_frame (unsigned char KWPopts, int BIT_ID) 
+ 172          {               
+ 173   1              int timeout = 4096;                                             // roughley 2.5ms
+ 174   1      
+ 175   1              EIE2 &= ~0x01;                                  // disable Timer3 interrupts
+ 176   1      
+ 177   1              SFRPAGE = CAN0_PAGE;
+ 178   1              CAN0STA &= ~BIT3;                                               // Clear status bits
+ 179   1      
+C51 COMPILER V9.51   VP4_K4_V1_3_W_SWS                                                     07/19/2016 07:12:01 PAGE 4   
+
+ 180   1              CAN0ADR = IF1CMDMSK;                            // Point to Command Mask 1
+ 181   1              CAN0DAT = 0x00B7;                               // Config to WRITE to CAN RAM, write data bytes, set TXrqst/NewDat, Clr 
+             -IntPnd
+ 182   1              CAN0ADR = IF1ARB1;
+ 183   1      
+ 184   1      
+ 185   1                      if (BIT_ID == 29)
+ 186   1                      {
+ 187   2                      //29BIT XTD ID
+ 188   2                      CAN0DAT = (unsigned int)(txframe.arbID & 0x0000FFFF);
+ 189   2                      CAN0DAT = ((unsigned int)((txframe.arbID & 0x7FFF0000) >> 16)) | 0xe000;
+ 190   2                      }
+ 191   1                      
+ 192   1                      
+ 193   1                      else 
+ 194   1                      {       
+ 195   2                      // 11BIT ID
+ 196   2                      CAN0DAT = 0x0000;                                       // Arb1 Data                    
+ 197   2                      CAN0DAT = ((unsigned int)(txframe.arbID << 2)) | 0xA000;
+ 198   2                      }
+ 199   1      
+ 200   1              CAN0ADR = IF1MSGC;                                              // Data Size
+ 201   1      
+ 202   1              CAN0DAT = 0x0880 | txframe.sz;                  // w/ TxIE set                                           
+ 203   1      
+ 204   1      
+ 205   1              CAN0ADR = IF1DATA1;                             // Point to 1st byte of Data Field      
+ 206   1              CAN0DAT = (unsigned int)txframe.cdat[0] | ((unsigned int)txframe.cdat[1] << 8);
+ 207   1              CAN0DAT = (unsigned int)txframe.cdat[2] | ((unsigned int)txframe.cdat[3] << 8);
+ 208   1              CAN0DAT = (unsigned int)txframe.cdat[4] | ((unsigned int)txframe.cdat[5] << 8);
+ 209   1              CAN0DAT = (unsigned int)txframe.cdat[6] | ((unsigned int)txframe.cdat[7] << 8);
+ 210   1      
+ 211   1              CAN0ADR = IF1CMDRQST;                           // Point to Command Request Reg.
+ 212   1              CAN0DATL = txframe.MsgNum;                      // Move new data for TX to Msg Obj "MsgNum"
+ 213   1      
+ 214   1      }
+*** WARNING C173 IN LINE 214 OF VP4 K4 v1.3 w SWS.c: missing return-expression
+*** WARNING C280 IN LINE 171 OF VP4 K4 v1.3 w SWS.c: 'KWPopts': unreferenced local variable
+ 215          
+ 216          
+ 217          
+ 218          
+ 219          
+ 220          void config_CAN_timing(void)
+ 221          {
+ 222   1              SFRPAGE = CAN0_PAGE;
+ 223   1              CAN0CN |= 0x41;                                                 // Set CCE bit to enable write access
+ 224   1              CAN0ADR = BITREG;                                               // Point to the Bit Timing Register
+ 225   1      
+ 226   1              CAN0DATH = 0x5A;                                        // 18.0mhz BRP=7 125kbps
+ 227   1              CAN0DATL = 0xC7;                                        // Tseg2=6, Tseg1=11, SJW=4
+ 228   1      }
+ 229          
+ 230          void config_IO(void)
+ 231          {
+ 232   1        
+ 233   1      
+ 234   1      char SFRPAGE_SAVE = SFRPAGE;
+ 235   1      
+ 236   1                      SFRPAGE = CONFIG_PAGE;
+ 237   1                      
+ 238   1                      
+C51 COMPILER V9.51   VP4_K4_V1_3_W_SWS                                                     07/19/2016 07:12:01 PAGE 5   
+
+ 239   1                      P0MDOUT  = 0x03;                        //pin P0^0 & P0^1 are push pull
+ 240   1                      P2MDIN  |= 0x01;                        //pin P2^0 is digital
+ 241   1                      P2MDOUT  = 0x01;                        //pin P2^0 is push pull 
+ 242   1                      P1MDOUT  = 0x00;                        //Port 1 is open drain
+ 243   1                      P1MDIN   = 0xff;        
+ 244   1                      XBR2     = 0x40;                        // enable crossbar and disable weak pullups
+ 245   1                      XBR3     = 0x80;     // Configure CAN TX pin (CTX) as push-pull digital output          
+ 246   1                      SFRPAGE = SFRPAGE_SAVE;
+ 247   1      
+ 248   1      
+ 249   1      }
+ 250          
+ 251          
+ 252          void receive_data(char MsgNum)
+ 253          {
+ 254   1        
+ 255   1        SFRPAGE = CAN0_PAGE; //Saves 
+ 256   1      
+ 257   1              
+ 258   1              for (count1 =  MsgNum; count1 >= 0;count1--)
+ 259   1              {
+ 260   2              rxframe[1].MsgNum = 30;
+ 261   2      
+ 262   2              CAN0ADR = IF2CMDMSK;                                                    // Point to Command Mask 1
+ 263   2              CAN0DATL = 0x3F;                                                        // Config to READ CAN RAM, read data bytes, clr NewDat and IntPnd, arb I
+             -D
+ 264   2              CAN0ADR = IF2CMDRQST;                                                   // Point to Command Request Reg.
+ 265   2              CAN0DATL = rxframe[1].MsgNum;                           // Move new data for RX from Msg Obj "MsgNum"
+ 266   2      
+ 267   2              //Get Arb ID
+ 268   2              CAN0ADR = IF2ARB2;                                                              //Point to Arbitration 2
+ 269   2              rxframe[1].arbID = (CAN0DAT & 0x1FFF) >> 2;
+ 270   2      
+ 271   2              //Get Data Size
+ 272   2              CAN0ADR = IF2MSGC;                                                              //Point to IF2 Message Control Register
+ 273   2              rxframe[1].sz = CAN0DATL & 0x0F;
+ 274   2              
+ 275   2              //Move new data to a buffer     
+ 276   2              CAN0ADR = IF2DATA1;                                                     // Point to 1st byte of Data Field         
+ 277   2              rxframe[1].cdat[0] = CAN0DATL;
+ 278   2              CAN0ADR = IF2DATA1;                                
+ 279   2              rxframe[1].cdat[1] = CAN0DATH;
+ 280   2      
+ 281   2              CAN0ADR = IF2DATA2;
+ 282   2              rxframe[1].cdat[2] = CAN0DATL;
+ 283   2              CAN0ADR = IF2DATA2;
+ 284   2              rxframe[1].cdat[3] = CAN0DATH;
+ 285   2      
+ 286   2              CAN0ADR = IF2DATB1;
+ 287   2              rxframe[1].cdat[4] = CAN0DATL;
+ 288   2              CAN0ADR = IF2DATB1;
+ 289   2              rxframe[IntReg].cdat[5] = CAN0DATH;
+ 290   2              
+ 291   2      
+ 292   2              check_lang();   // change configuration message depending on request from radio
+ 293   2              }
+ 294   1        
+ 295   1      }
+ 296          
+ 297          
+ 298          void ISRname(void) interrupt 19
+ 299          {
+C51 COMPILER V9.51   VP4_K4_V1_3_W_SWS                                                     07/19/2016 07:12:01 PAGE 6   
+
+ 300   1        status = CAN0STA;
+ 301   1        if ((status&0x10) != 0)
+ 302   1          {                            // RxOk is set, interrupt caused by reception
+ 303   2            CAN0STA = (CAN0STA&0xEF)|0x07;         // Reset RxOk, set LEC to NoChange
+ 304   2            /* read message number from CAN INTREG */
+ 305   2            receive_data (0x01);             // Up to now, we have only one RX message
+ 306   2          }
+ 307   1        if ((status&0x08) != 0)
+ 308   1          {                            // TxOk is set, interrupt caused by transmision
+ 309   2            CAN0STA = (CAN0STA&0xF7)|0x07;        // Reset TxOk, set LEC to NoChange
+ 310   2          }
+ 311   1        if (((status&0x07) != 0)&&((status&0x07) != 7))
+ 312   1          {                           // Error interrupt, LEC changed
+ 313   2            /* error handling ? */
+ 314   2            CAN0STA = CAN0STA|0x07;              // Set LEC to NoChange
+ 315   2          }
+ 316   1              EA = 0;
+ 317   1              EA = 0;
+ 318   1      }
+ 319          
+ 320          void clear_msg_objects(void)
+ 321          {
+ 322   1        SFRPAGE  = CAN0_PAGE;
+ 323   1        CAN0ADR  = IF1CMDMSK;    // Point to Command Mask Register 1
+ 324   1        CAN0DATL = 0xFF;         // Set direction to WRITE all IF registers to Msg Obj
+ 325   1        for (i=1;i<33;i++)
+ 326   1          {
+ 327   2            CAN0ADR = IF1CMDRQST; // Write blank (reset) IF registers to each msg obj
+ 328   2            CAN0DATL = i;
+ 329   2          }
+ 330   1      }
+ 331          
+ 332          void radiotest(void)
+ 333          
+ 334          {       
+ 335   1                      
+ 336   1      
+ 337   1      
+ 338   1                      char VIN[17] = "1C4PJMDB3GW1014UC";
+ 339   1      
+ 340   1      
+ 341   1      
+ 342   1                              
+ 343   1                              //transmits can 
+ 344   1      
+ 345   1                              
+ 346   1                              shortdelay();
+ 347   1                              txframe.MsgNum = 4;                       //Message number(sequential starting at 1 for unique messages                                                 
+ 348   1                              txframe.arbID = 0x3d3;            //Message ID VIN, VIN_LO hex 31 = ascii 1                                                                             
+ 349   1                              txframe.sz = 8;                           //8 bytes
+ 350   1                              txframe.cdat[0] = 0x00;                                                 
+ 351   1                              txframe.cdat[1] = VIN[0];       
+ 352   1                              txframe.cdat[2] = VIN[1];                                               
+ 353   1                              txframe.cdat[3] = VIN[2];         
+ 354   1                              txframe.cdat[4] = VIN[3];                                                       
+ 355   1                              txframe.cdat[5] = VIN[4];       
+ 356   1                              txframe.cdat[6] = VIN[5];
+ 357   1                              txframe.cdat[7] = VIN[6];         
+ 358   1                              tx_can_frame(0,11);
+ 359   1      
+ 360   1                              onehundredms();
+ 361   1                              onehundredms();
+C51 COMPILER V9.51   VP4_K4_V1_3_W_SWS                                                     07/19/2016 07:12:01 PAGE 7   
+
+ 362   1                              shortdelay();
+ 363   1                              txframe.MsgNum = 5;                       //Message number(sequential starting at 1 for unique messages                                                 
+ 364   1                              txframe.arbID = 0x3d3;            //Message ID VIN, VIN_MID hex 31 = ascii 1                                                                            
+ 365   1                              txframe.sz = 8;
+ 366   1                              txframe.cdat[0] = 0x01;                           //8 bytes
+ 367   1                              txframe.cdat[1] = VIN[7];       
+ 368   1                              txframe.cdat[2] = VIN[8];                                               
+ 369   1                              txframe.cdat[3] = VIN[9];         
+ 370   1                              txframe.cdat[4] = VIN[10];                                                      
+ 371   1                              txframe.cdat[5] = VIN[11];      
+ 372   1                              txframe.cdat[6] = VIN[12];
+ 373   1                              txframe.cdat[7] = VIN[13];        
+ 374   1                              tx_can_frame(0,11);
+ 375   1      
+ 376   1                              onehundredms();
+ 377   1                              shortdelay();
+ 378   1                              txframe.MsgNum = 6;                       //Message number(sequential starting at 1 for unique messages                                                 
+ 379   1                              txframe.arbID = 0x3d3;            //Message ID VIN, VIN_HI hex 31 = ascii 1                                                                             
+ 380   1                              txframe.sz = 8;
+ 381   1                              txframe.cdat[0] = 0x02;                           //8 bytes
+ 382   1                              txframe.cdat[1] = VIN[14];      
+ 383   1                              txframe.cdat[2] = VIN[15];                                              
+ 384   1                              txframe.cdat[3] = VIN[16];        
+ 385   1                              txframe.cdat[4] = 0x00;                                                 
+ 386   1                              txframe.cdat[5] = 0x00; 
+ 387   1                              txframe.cdat[6] = 0x00;
+ 388   1                              txframe.cdat[7] = 0x00;  
+ 389   1                              tx_can_frame(0,11);
+ 390   1                              
+ 391   1                              shortdelay();
+ 392   1                              txframe.MsgNum = 6;                       //Message number(sequential starting at 1 for unique messages                                                 
+ 393   1                              txframe.arbID = 0x098;            //Message ID VIN, VIN_HI hex 31 = ascii 1                                                                             
+ 394   1                              txframe.sz = 8;
+ 395   1                              txframe.cdat[0] = 0x00;                           //8 bytes
+ 396   1                              txframe.cdat[1] = 0x00; 
+ 397   1                              txframe.cdat[2] = 0x00;                                         
+ 398   1                              txframe.cdat[3] = 0x00;   
+ 399   1                              txframe.cdat[4] = 0x00;                                                 
+ 400   1                              txframe.cdat[5] = 0x00; 
+ 401   1                              txframe.cdat[6] = 0x00;
+ 402   1                              txframe.cdat[7] = 0x00;  
+ 403   1                              tx_can_frame(0,11);
+ 404   1                              
+ 405   1                              shortdelay();
+ 406   1                              txframe.MsgNum = 6;                       //Message number(sequential starting at 1 for unique messages                                                 
+ 407   1                              txframe.arbID = 0x09A;            //Message ID VIN, VIN_HI hex 31 = ascii 1                                                                             
+ 408   1                              txframe.sz = 8;
+ 409   1                              txframe.cdat[0] = 0x00;                           //8 bytes
+ 410   1                              txframe.cdat[1] = 0x00; 
+ 411   1                              txframe.cdat[2] = 0x00;                                         
+ 412   1                              txframe.cdat[3] = 0x00;   
+ 413   1                              txframe.cdat[4] = 0x00;                                                 
+ 414   1                              txframe.cdat[5] = 0x00; 
+ 415   1                              txframe.cdat[6] = 0x00;
+ 416   1                              txframe.cdat[7] = 0x00;  
+ 417   1                              tx_can_frame(0,11);
+ 418   1      
+ 419   1                              shortdelay();
+ 420   1                              txframe.MsgNum = 6;                       //Message number(sequential starting at 1 for unique messages                                                 
+ 421   1                              txframe.arbID = 0x339;            //Message ID VIN, VIN_HI hex 31 = ascii 1                                                                             
+ 422   1                              txframe.sz = 8;
+ 423   1                              txframe.cdat[0] = 0x00;                           //8 bytes
+C51 COMPILER V9.51   VP4_K4_V1_3_W_SWS                                                     07/19/2016 07:12:01 PAGE 8   
+
+ 424   1                              txframe.cdat[1] = 0x00; 
+ 425   1                              txframe.cdat[2] = 0x00;                                         
+ 426   1                              txframe.cdat[3] = 0x00;   
+ 427   1                              txframe.cdat[4] = 0x00;                                                 
+ 428   1                              txframe.cdat[5] = 0x00; 
+ 429   1                              txframe.cdat[6] = 0x00;
+ 430   1                              txframe.cdat[7] = 0x00;  
+ 431   1                              tx_can_frame(0,11);
+ 432   1      
+ 433   1                              shortdelay();
+ 434   1                              txframe.MsgNum = 6;                       //Message number(sequential starting at 1 for unique messages                                                 
+ 435   1                              txframe.arbID = 0x33B;            //Message ID VIN, VIN_HI hex 31 = ascii 1                                                                             
+ 436   1                              txframe.sz = 8;
+ 437   1                              txframe.cdat[0] = 0x00;                           //8 bytes
+ 438   1                              txframe.cdat[1] = 0x00; 
+ 439   1                              txframe.cdat[2] = 0x00;                                         
+ 440   1                              txframe.cdat[3] = 0x00;   
+ 441   1                              txframe.cdat[4] = 0x00;                                                 
+ 442   1                              txframe.cdat[5] = 0x00; 
+ 443   1                              txframe.cdat[6] = 0x00;
+ 444   1                              txframe.cdat[7] = 0x00;  
+ 445   1                              tx_can_frame(0,11);
+ 446   1      
+ 447   1                              shortdelay();
+ 448   1                              txframe.MsgNum = 6;                       //Message number(sequential starting at 1 for unique messages                                                 
+ 449   1                              txframe.arbID = 0x3CB;            //Message ID VIN, VIN_HI hex 31 = ascii 1                                                                             
+ 450   1                              txframe.sz = 8;
+ 451   1                              txframe.cdat[0] = 0x00;                           //8 bytes
+ 452   1                              txframe.cdat[1] = 0x00; 
+ 453   1                              txframe.cdat[2] = 0x00;                                         
+ 454   1                              txframe.cdat[3] = 0x00;   
+ 455   1                              txframe.cdat[4] = 0x00;                                                 
+ 456   1                              txframe.cdat[5] = 0x00; 
+ 457   1                              txframe.cdat[6] = 0x00;
+ 458   1                              txframe.cdat[7] = 0x00;  
+ 459   1                              tx_can_frame(0,11);
+ 460   1      
+ 461   1                              shortdelay();
+ 462   1                              txframe.MsgNum = 6;                       //Message number(sequential starting at 1 for unique messages                                                 
+ 463   1                              txframe.arbID = 0x5C8;            //Message ID VIN, VIN_HI hex 31 = ascii 1                                                                             
+ 464   1                              txframe.sz = 3;
+ 465   1                              txframe.cdat[0] = 0x00;                           //8 bytes
+ 466   1                              txframe.cdat[1] = 0x00; 
+ 467   1                              txframe.cdat[2] = 0x00;                                          
+ 468   1                              tx_can_frame(0,11);
+ 469   1      
+ 470   1                              shortdelay();
+ 471   1                              txframe.MsgNum = 6;                       //Message number(sequential starting at 1 for unique messages                                                 
+ 472   1                              txframe.arbID = 0x5CA;            //Message ID VIN, VIN_HI hex 31 = ascii 1                                                                             
+ 473   1                              txframe.sz = 8;
+ 474   1                              txframe.cdat[0] = 0x00;                           //8 bytes
+ 475   1                              txframe.cdat[1] = 0x00; 
+ 476   1                              txframe.cdat[2] = 0xFF;                                         
+ 477   1                              txframe.cdat[3] = 0xFF;   
+ 478   1                              txframe.cdat[4] = 0xFF;                                                 
+ 479   1                              txframe.cdat[5] = 0xFF; 
+ 480   1                              txframe.cdat[6] = 0x08;
+ 481   1                              txframe.cdat[7] = 0x00;  
+ 482   1                              tx_can_frame(0,11);
+ 483   1      
+ 484   1                              
+ 485   1                              SWS_CUSW();
+C51 COMPILER V9.51   VP4_K4_V1_3_W_SWS                                                     07/19/2016 07:12:01 PAGE 9   
+
+ 486   1                              lang_cfg();                     
+ 487   1      
+ 488   1                                              
+ 489   1                                      
+ 490   1                      
+ 491   1                              //==================================================  Addition Steering Wheel buttons
+ 492   1                              
+ 493   1                              
+ 494   1                              
+ 495   1                              EA = 1;
+ 496   1                              receive_data(30);
+ 497   1                                              
+ 498   1                                              
+ 499   1                              
+ 500   1                      //=====================================================  Ignition off message           
+ 501   1              
+ 502   1      
+ 503   1      
+ 504   1      
+ 505   1      
+ 506   1                      
+ 507   1              }
+ 508          
+ 509          void codedelay(unsigned int delay)      //unsigned in
+ 510          {
+ 511   1              while (delay)
+ 512   1              delay--;
+ 513   1      } 
+ 514          
+ 515          void onehundredms(void)
+ 516          {
+ 517   1      
+ 518   1              
+ 519   1                                      codedelay(255000);
+ 520   1                                      codedelay(255000);
+ 521   1                                      codedelay(245000);
+ 522   1                                      codedelay(100062);
+ 523   1      }
+ 524          
+ 525          
+ 526          
+ 527          void shortdelay(void)
+ 528          {
+ 529   1                                      codedelay(200000);
+ 530   1      }
+ 531          
+ 532          
+ 533          
+ 534          void clear_message_object (unsigned char mesgobj,unsigned char count) 
+ 535          {
+ 536   1              SFRPAGE = CAN0_PAGE;
+ 537   1              CAN0ADR = IF1CMDMSK;                            //Point to Command Mask Register 1
+ 538   1              CAN0DATL = 0xFF;                                //Set direction to WRITE all IF registers to Msg Obj
+ 539   1      
+ 540   1              while (mesgobj < 33 && count)
+ 541   1              {
+ 542   2                      CAN0ADR = IF1CMDRQST;                           //Write blank IF registers to GLOBAL msg obj
+ 543   2                      CAN0DATL = mesgobj;
+ 544   2                      mesgobj++;
+ 545   2                      count--;
+ 546   2              }
+ 547   1      }               
+C51 COMPILER V9.51   VP4_K4_V1_3_W_SWS                                                     07/19/2016 07:12:01 PAGE 10  
+
+ 548          
+ 549          void check_lang(void)
+ 550          {               
+ 551   1      
+ 552   1              
+ 553   1              //This row of if statements checks to see if the data conatins 0A 03 04 which is sent by the lang = ENG r
+             -equest
+ 554   1              if((rxframe[1].cdat[0] == 0x0A) && (rxframe[1].cdat[1] == 0x03) && (rxframe[1].cdat[2] == 0x01))
+ 555   1              {
+ 556   2                      flag_eng = 1;
+ 557   2                      flag_spa = 0;
+ 558   2                      flag_ger = 0;
+ 559   2                      flag_fre = 0;
+ 560   2                      flag_ita = 0;
+ 561   2                      flag_jap = 0;
+ 562   2                      flag_chs = 0;
+ 563   2                      flag_cht = 0;           
+ 564   2              }
+ 565   1      
+ 566   1              //This row of if statements checks to see if the data conatins 0A 03 01 which is sent by the lang = SPA r
+             -equest
+ 567   1              if((rxframe[1].cdat[0] == 0x0A) && (rxframe[1].cdat[1] == 0x03) && (rxframe[1].cdat[2] == 0x04))
+ 568   1              {
+ 569   2                      flag_eng = 0;
+ 570   2                      flag_spa = 1;
+ 571   2                      flag_ger = 0;
+ 572   2                      flag_fre = 0;
+ 573   2                      flag_ita = 0;
+ 574   2                      flag_jap = 0;
+ 575   2                      flag_chs = 0;
+ 576   2                      flag_cht = 0;   
+ 577   2                              
+ 578   2                      
+ 579   2              }
+ 580   1      
+ 581   1              
+ 582   1              
+ 583   1              if((rxframe[1].cdat[0] == 0x0A) && (rxframe[1].cdat[1] == 0x03) && (rxframe[1].cdat[2] == 0x00))
+ 584   1              {
+ 585   2                      flag_eng = 0;
+ 586   2                      flag_spa = 0;
+ 587   2                      flag_ger = 1;
+ 588   2                      flag_fre = 0;
+ 589   2                      flag_ita = 0;
+ 590   2                      flag_jap = 0;
+ 591   2                      flag_chs = 0;
+ 592   2                      flag_cht = 0;           
+ 593   2              }
+ 594   1              
+ 595   1      
+ 596   1              if((rxframe[1].cdat[0] == 0x0A) && (rxframe[1].cdat[1] == 0x03) && (rxframe[1].cdat[2] == 0x02))
+ 597   1              {
+ 598   2                      flag_eng = 0;
+ 599   2                      flag_spa = 0;
+ 600   2                      flag_ger = 0;
+ 601   2                      flag_fre = 1;
+ 602   2                      flag_ita = 0;
+ 603   2                      flag_jap = 0;
+ 604   2                      flag_chs = 0;
+ 605   2                      flag_cht = 0;           
+ 606   2              }
+ 607   1      
+C51 COMPILER V9.51   VP4_K4_V1_3_W_SWS                                                     07/19/2016 07:12:01 PAGE 11  
+
+ 608   1              
+ 609   1              if((rxframe[1].cdat[0] == 0x0A) && (rxframe[1].cdat[1] == 0x03) && (rxframe[1].cdat[2] == 0x03))
+ 610   1              {
+ 611   2                      flag_eng = 0;
+ 612   2                      flag_spa = 0;
+ 613   2                      flag_ger = 0;
+ 614   2                      flag_fre = 0;
+ 615   2                      flag_ita = 1;
+ 616   2                      flag_jap = 0;
+ 617   2                      flag_chs = 0;
+ 618   2                      flag_cht = 0;           
+ 619   2              }
+ 620   1              
+ 621   1              /*
+ 622   1              
+ 623   1              if((rxframe[1].cdat[0] == 0x0A) && (rxframe[1].cdat[1] == 0x03) && (rxframe[1].cdat[2] == 0x05))
+ 624   1              {
+ 625   1                      flag_eng = 0;
+ 626   1                      flag_spa = 0;
+ 627   1                      flag_ger = 0;
+ 628   1                      flag_fre = 0;
+ 629   1                      flag_ita = 0;
+ 630   1                      flag_jap = 1;
+ 631   1                      flag_chs = 0;
+ 632   1                      flag_cht = 0;   
+ 633   1                              
+ 634   1                      
+ 635   1              }
+ 636   1              
+ 637   1              */
+ 638   1              if((rxframe[1].cdat[0] == 0x0A) && (rxframe[1].cdat[1] == 0x03) && (rxframe[1].cdat[2] == 0x09))
+ 639   1              {
+ 640   2                      flag_eng = 0;
+ 641   2                      flag_spa = 0;
+ 642   2                      flag_ger = 0;
+ 643   2                      flag_fre = 0;
+ 644   2                      flag_ita = 0;
+ 645   2                      flag_jap = 0;
+ 646   2                      flag_chs = 1;
+ 647   2                      flag_cht = 0;           
+ 648   2              }
+ 649   1      
+ 650   1              /*
+ 651   1              if((rxframe[1].cdat[0] == 0x0A) && (rxframe[1].cdat[1] == 0x03) && (rxframe[1].cdat[2] == 0x0E))
+ 652   1              {
+ 653   1                      flag_eng = 0;
+ 654   1                      flag_spa = 0;
+ 655   1                      flag_ger = 0;
+ 656   1                      flag_fre = 0;
+ 657   1                      flag_ita = 0;
+ 658   1                      flag_jap = 0;
+ 659   1                      flag_chs = 0;
+ 660   1                      flag_cht = 1;           
+ 661   1              }
+ 662   1      
+ 663   1      
+ 664   1      
+ 665   1      
+ 666   1              
+ 667   1              */
+ 668   1      
+ 669   1              
+C51 COMPILER V9.51   VP4_K4_V1_3_W_SWS                                                     07/19/2016 07:12:01 PAGE 12  
+
+ 670   1      
+ 671   1      }       
+ 672          
+ 673          void SWS_CUSW(void)       
+ 674          {
+ 675   1              if (PH_BUTTON == 0 )                   
+ 676   1      
+ 677   1                                      { 
+ 678   2                                                      shortdelay();
+ 679   2                                                              txframe.MsgNum = 13;                      //Message number(sequential starting at 1 for unique messages                                                 
+ 680   2                                                              txframe.arbID = 0x4A3;          //phone pickup                                                                                          
+ 681   2                                                              txframe.sz = 8;                         
+ 682   2                                                              txframe.cdat[0] = 0x00;                                                 
+ 683   2                                                              txframe.cdat[1] = 0x00; 
+ 684   2                                                              txframe.cdat[2] = 0x00;                                         
+ 685   2                                                              txframe.cdat[3] = 0x00;   
+ 686   2                                                              txframe.cdat[4] = 0x80;                                                 
+ 687   2                                                              txframe.cdat[5] = 0x00; 
+ 688   2                                                              txframe.cdat[6] = 0x00;
+ 689   2                                                              txframe.cdat[7] = 0x00;                   
+ 690   2                                                              tx_can_frame(0,11);
+ 691   2      
+ 692   2                                                      
+ 693   2                                      
+ 694   2                                                      }                       
+ 695   1                                      else if (VR_BUTTON == 0)  
+ 696   1                                        {  
+ 697   2                                                      shortdelay();
+ 698   2                                                              txframe.MsgNum = 12;                      //Message number(sequential starting at 1 for unique messages                                                 
+ 699   2                                                              txframe.arbID= 0x4A3;                                                                                   
+ 700   2                                                              txframe.sz = 8;                           
+ 701   2                                                              txframe.cdat[0] = 0x00;                                                 
+ 702   2                                                              txframe.cdat[1] = 0x00; 
+ 703   2                                                              txframe.cdat[2] = 0x00;                                         
+ 704   2                                                              txframe.cdat[3] = 0x20;   
+ 705   2                                                              txframe.cdat[4] = 0x00;                                                 
+ 706   2                                                              txframe.cdat[5] = 0x00; 
+ 707   2                                                              txframe.cdat[6] = 0x00;
+ 708   2                                                              txframe.cdat[7] = 0x00;                   
+ 709   2                                                              tx_can_frame(0,11);
+ 710   2                                        }      
+ 711   1                                      
+ 712   1                                      else if (PH_BUTTON_END == 0)  
+ 713   1                                        {  
+ 714   2                                                      shortdelay();
+ 715   2                                                              txframe.MsgNum = 12;                      //Message number(sequential starting at 1 for unique messages                                                 
+ 716   2                                                              txframe.arbID= 0x4A3;                                                                                   
+ 717   2                                                              txframe.sz = 8;                           
+ 718   2                                                              txframe.cdat[0] = 0x00;                                                 
+ 719   2                                                              txframe.cdat[1] = 0x00; 
+ 720   2                                                              txframe.cdat[2] = 0x00;                                         
+ 721   2                                                              txframe.cdat[3] = 0x02;   
+ 722   2                                                              txframe.cdat[4] = 0x00;                                                 
+ 723   2                                                              txframe.cdat[5] = 0x00; 
+ 724   2                                                              txframe.cdat[6] = 0x00;
+ 725   2                                                              txframe.cdat[7] = 0x00; 
+ 726   2                                                              tx_can_frame(0,11);
+ 727   2                                        }             
+ 728   1                                              
+ 729   1                                              
+ 730   1      
+ 731   1                                                       
+C51 COMPILER V9.51   VP4_K4_V1_3_W_SWS                                                     07/19/2016 07:12:01 PAGE 13  
+
+ 732   1                                       else if (VOL_UP == 0)
+ 733   1                                              {
+ 734   2                                      shortdelay();
+ 735   2                                      txframe.MsgNum = 12;                      //Message number(sequential starting at 1 for unique messages                                                 
+ 736   2                                      txframe.arbID= 0x4A3;             //Message ID VR off                                                                   
+ 737   2                                      txframe.sz = 8;                           //8 bytes
+ 738   2                                      txframe.cdat[0] = 0x00;                                                 
+ 739   2                                      txframe.cdat[1] = 0x00; 
+ 740   2                                      txframe.cdat[2] = 0x00;   // lever in Park                                      
+ 741   2                                      txframe.cdat[3] = 0x00;   
+ 742   2                                      txframe.cdat[4] = 0x00;                                                 
+ 743   2                                      txframe.cdat[5] = 0x08; 
+ 744   2                                      txframe.cdat[6] = 0x00;
+ 745   2                                      txframe.cdat[7] = 0x00;           
+ 746   2                                      tx_can_frame(0,11);
+ 747   2                              }
+ 748   1                              else if (VOL_DWN == 0)
+ 749   1                              {
+ 750   2                                      shortdelay();
+ 751   2                                      txframe.MsgNum = 12;                      //Message number(sequential starting at 1 for unique messages                                                 
+ 752   2                                      txframe.arbID= 0x4A3;             //Message ID VR off                                                                   
+ 753   2                                      txframe.sz = 8;                           //8 bytes
+ 754   2                                      txframe.cdat[0] = 0x00;                                                 
+ 755   2                                      txframe.cdat[1] = 0x00; 
+ 756   2                                      txframe.cdat[2] = 0x00;   // lever in Park                                      
+ 757   2                                      txframe.cdat[3] = 0x00;   
+ 758   2                                      txframe.cdat[4] = 0x00;                                                 
+ 759   2                                      txframe.cdat[5] = 0x20; 
+ 760   2                                      txframe.cdat[6] = 0x00;
+ 761   2                                      txframe.cdat[7] = 0x00;           
+ 762   2                                      tx_can_frame(0,11);
+ 763   2                              }
+ 764   1                              else if (SEEK_UP == 0)
+ 765   1                              {
+ 766   2                                      shortdelay();
+ 767   2                                      txframe.MsgNum = 12;                      //Message number(sequential starting at 1 for unique messages                                                 
+ 768   2                                      txframe.arbID= 0x4A3;             //Message ID VR off                                                                   
+ 769   2                                      txframe.sz = 8;                           //8 bytes
+ 770   2                                      txframe.cdat[0] = 0x00;                                                 
+ 771   2                                      txframe.cdat[1] = 0x00; 
+ 772   2                                      txframe.cdat[2] = 0x00;   // lever in Park                                      
+ 773   2                                      txframe.cdat[3] = 0x00;   
+ 774   2                                      txframe.cdat[4] = 0x02;                                                 
+ 775   2                                      txframe.cdat[5] = 0x00; 
+ 776   2                                      txframe.cdat[6] = 0x00;
+ 777   2                                      txframe.cdat[7] = 0x00;           
+ 778   2                                      tx_can_frame(0,11);
+ 779   2                              }
+ 780   1                              else if (SEEK_DWN == 0)
+ 781   1                              {
+ 782   2                                      shortdelay();
+ 783   2                                      txframe.MsgNum = 12;                      //Message number(sequential starting at 1 for unique messages                                                 
+ 784   2                                      txframe.arbID= 0x4A3;             //Message ID VR off                                                                   
+ 785   2                                      txframe.sz = 8;                           //8 bytes
+ 786   2                                      txframe.cdat[0] = 0x00;                                                 
+ 787   2                                      txframe.cdat[1] = 0x00; 
+ 788   2                                      txframe.cdat[2] = 0x00;   // lever in Park                                      
+ 789   2                                      txframe.cdat[3] = 0x00;   
+ 790   2                                      txframe.cdat[4] = 0x08;                                                 
+ 791   2                                      txframe.cdat[5] = 0x00; 
+ 792   2                                      txframe.cdat[6] = 0x00;
+ 793   2                                      txframe.cdat[7] = 0x00;           
+C51 COMPILER V9.51   VP4_K4_V1_3_W_SWS                                                     07/19/2016 07:12:01 PAGE 14  
+
+ 794   2                                      tx_can_frame(0,11);
+ 795   2                              }
+ 796   1                              else if (MODE == 0)
+ 797   1                              {
+ 798   2                                      shortdelay();
+ 799   2                                      txframe.MsgNum = 12;                      //Message number(sequential starting at 1 for unique messages                                                 
+ 800   2                                      txframe.arbID= 0x4A3;             //Message ID VR off                                                                   
+ 801   2                                      txframe.sz = 8;                           //8 bytes
+ 802   2                                      txframe.cdat[0] = 0x00;                                                 
+ 803   2                                      txframe.cdat[1] = 0x00; 
+ 804   2                                      txframe.cdat[2] = 0x00;   // lever in Park                                      
+ 805   2                                      txframe.cdat[3] = 0x00;   
+ 806   2                                      txframe.cdat[4] = 0x00;                                                 
+ 807   2                                      txframe.cdat[5] = 0x80; 
+ 808   2                                      txframe.cdat[6] = 0x00;
+ 809   2                                      txframe.cdat[7] = 0x00;           
+ 810   2                                      tx_can_frame(0,11);
+ 811   2                              }
+ 812   1                              else if (PRESET == 0)
+ 813   1                              {
+ 814   2                                      shortdelay();
+ 815   2                                      txframe.MsgNum = 12;                      //Message number(sequential starting at 1 for unique messages                                                 
+ 816   2                                      txframe.arbID= 0x4A3;             //Message ID VR off                                                                   
+ 817   2                                      txframe.sz = 8;                           //8 bytes
+ 818   2                                      txframe.cdat[0] = 0x00;                                                 
+ 819   2                                      txframe.cdat[1] = 0x00; 
+ 820   2                                      txframe.cdat[2] = 0x00;   // lever in Park                                      
+ 821   2                                      txframe.cdat[3] = 0x08;   
+ 822   2                                      txframe.cdat[4] = 0x00;                                                 
+ 823   2                                      txframe.cdat[5] = 0x00; 
+ 824   2                                      txframe.cdat[6] = 0x00;
+ 825   2                                      txframe.cdat[7] = 0x00;           
+ 826   2                                      tx_can_frame(0,11);
+ 827   2                              }
+ 828   1                              else 
+ 829   1                              {
+ 830   2                                      shortdelay();
+ 831   2                                      txframe.MsgNum = 12;                      //Message number(sequential starting at 1 for unique messages                                                 
+ 832   2                                      txframe.arbID= 0x4A3;             //Message ID VR off                                                                   
+ 833   2                                      txframe.sz = 8;                           //8 bytes
+ 834   2                                      txframe.cdat[0] = 0x00;                                                 
+ 835   2                                      txframe.cdat[1] = 0x00; 
+ 836   2                                      txframe.cdat[2] = 0x00;   // lever in Park                                      
+ 837   2                                      txframe.cdat[3] = 0x00;   
+ 838   2                                      txframe.cdat[4] = 0x00;                                                 
+ 839   2                                      txframe.cdat[5] = 0x00; 
+ 840   2                                      txframe.cdat[6] = 0x00;
+ 841   2                                      txframe.cdat[7] = 0x00;           
+ 842   2                                      tx_can_frame(0,11);
+ 843   2                              }             
+ 844   1                              
+ 845   1                              
+ 846   1      }
+ 847          
+ 848          
+ 849          void lang_cfg()
+ 850          {
+ 851   1                      
+ 852   1                      if (flag_eng == 1)                      // Set language configuration based on check_lang() function ---- English
+ 853   1                      {
+ 854   2                      shortdelay();
+ 855   2                      txframe.MsgNum = 12;                      //Message number(sequential starting at 1 for unique messages                                                 
+C51 COMPILER V9.51   VP4_K4_V1_3_W_SWS                                                     07/19/2016 07:12:01 PAGE 15  
+
+ 856   2                      txframe.arbID= 0x49D;             //Message ID VR off                                                                   
+ 857   2                      txframe.sz = 8;                           //8 bytes
+ 858   2                      txframe.cdat[0] = 0x00;                                                 
+ 859   2                      txframe.cdat[1] = 0x00; 
+ 860   2                      txframe.cdat[2] = 0x00;                                         
+ 861   2                      txframe.cdat[3] = 0x00;   
+ 862   2                      txframe.cdat[4] = 0x00;                                                 
+ 863   2                      txframe.cdat[5] = 0x00; 
+ 864   2                      txframe.cdat[6] = 0x08;
+ 865   2                      txframe.cdat[7] = 0x00;           
+ 866   2                      tx_can_frame(0,11);
+ 867   2                      }
+ 868   1                      
+ 869   1                      if (flag_spa == 1)                      // Set language configuration based on check_lang() function ---- Spanish
+ 870   1                      {
+ 871   2                      shortdelay();
+ 872   2                      txframe.MsgNum = 12;                      //Message number(sequential starting at 1 for unique messages                                                 
+ 873   2                      txframe.arbID= 0x49D;             //Message ID VR off                                                                   
+ 874   2                      txframe.sz = 8;                           //8 bytes
+ 875   2                      txframe.cdat[0] = 0x00;                                                 
+ 876   2                      txframe.cdat[1] = 0x00; 
+ 877   2                      txframe.cdat[2] = 0x00;   // lever in Park                                      
+ 878   2                      txframe.cdat[3] = 0x00;   
+ 879   2                      txframe.cdat[4] = 0x00;                                                 
+ 880   2                      txframe.cdat[5] = 0x00; 
+ 881   2                      txframe.cdat[6] = 0x20;
+ 882   2                      txframe.cdat[7] = 0x00;           
+ 883   2                      tx_can_frame(0,11);
+ 884   2                      }
+ 885   1      
+ 886   1                      
+ 887   1                      if (flag_ger == 1)                      // Set language configuration based on check_lang() function ---- Spanish
+ 888   1                      {
+ 889   2                      shortdelay();
+ 890   2                      txframe.MsgNum = 12;                      //Message number(sequential starting at 1 for unique messages                                                 
+ 891   2                      txframe.arbID= 0x49D;             //Message ID VR off                                                                   
+ 892   2                      txframe.sz = 8;                           //8 bytes
+ 893   2                      txframe.cdat[0] = 0x00;                                                 
+ 894   2                      txframe.cdat[1] = 0x00; 
+ 895   2                      txframe.cdat[2] = 0x00;   // lever in Park                                      
+ 896   2                      txframe.cdat[3] = 0x00;   
+ 897   2                      txframe.cdat[4] = 0x00;                                                 
+ 898   2                      txframe.cdat[5] = 0x00; 
+ 899   2                      txframe.cdat[6] = 0x00;
+ 900   2                      txframe.cdat[7] = 0x00;           
+ 901   2                      tx_can_frame(0,11);
+ 902   2                      }
+ 903   1                      
+ 904   1      
+ 905   1                      if (flag_fre == 1)                      // Set language configuration based on check_lang() function ---- Spanish
+ 906   1                      {
+ 907   2                      shortdelay();
+ 908   2                      txframe.MsgNum = 12;                      //Message number(sequential starting at 1 for unique messages                                                 
+ 909   2                      txframe.arbID= 0x49D;             //Message ID VR off                                                                   
+ 910   2                      txframe.sz = 8;                           //8 bytes
+ 911   2                      txframe.cdat[0] = 0x00;                                                 
+ 912   2                      txframe.cdat[1] = 0x00; 
+ 913   2                      txframe.cdat[2] = 0x00;   // lever in Park                                      
+ 914   2                      txframe.cdat[3] = 0x00;   
+ 915   2                      txframe.cdat[4] = 0x00;                                                 
+ 916   2                      txframe.cdat[5] = 0x00; 
+ 917   2                      txframe.cdat[6] = 0x10;
+C51 COMPILER V9.51   VP4_K4_V1_3_W_SWS                                                     07/19/2016 07:12:01 PAGE 16  
+
+ 918   2                      txframe.cdat[7] = 0x00;           
+ 919   2                      tx_can_frame(0,11);
+ 920   2                      }
+ 921   1      
+ 922   1                      
+ 923   1                      if (flag_ita == 1)                      // Set language configuration based on check_lang() function ---- English
+ 924   1                      {
+ 925   2                      shortdelay();
+ 926   2                      txframe.MsgNum = 12;                      //Message number(sequential starting at 1 for unique messages                                                 
+ 927   2                      txframe.arbID= 0x49D;             //Message ID VR off                                                                   
+ 928   2                      txframe.sz = 8;                           //8 bytes
+ 929   2                      txframe.cdat[0] = 0x00;                                                 
+ 930   2                      txframe.cdat[1] = 0x00; 
+ 931   2                      txframe.cdat[2] = 0x00;                                         
+ 932   2                      txframe.cdat[3] = 0x00;   
+ 933   2                      txframe.cdat[4] = 0x00;                                                 
+ 934   2                      txframe.cdat[5] = 0x00; 
+ 935   2                      txframe.cdat[6] = 0x60;
+ 936   2                      txframe.cdat[7] = 0x00;           
+ 937   2                      tx_can_frame(0,11);
+ 938   2                      }
+ 939   1                      
+ 940   1                      /*
+ 941   1                      if (flag_jap == 1)                      // Set language configuration based on check_lang() function ---- Spanish
+ 942   1                      {
+ 943   1                      shortdelay();
+ 944   1                      txframe.MsgNum = 12;                      //Message number(sequential starting at 1 for unique messages                                                 
+ 945   1                      txframe.arbID= 0x49D;             //Message ID VR off                                                                   
+ 946   1                      txframe.sz = 8;                           //8 bytes
+ 947   1                      txframe.cdat[0] = 0x00;                                                 
+ 948   1                      txframe.cdat[1] = 0x00; 
+ 949   1                      txframe.cdat[2] = 0x00;   // lever in Park                                      
+ 950   1                      txframe.cdat[3] = 0x00;   
+ 951   1                      txframe.cdat[4] = 0x00;                                                 
+ 952   1                      txframe.cdat[5] = 0x00; 
+ 953   1                      txframe.cdat[6] = 0x50;
+ 954   1                      txframe.cdat[7] = 0x00;           
+ 955   1                      tx_can_frame(0,11);
+ 956   1                      }
+ 957   1                      */
+ 958   1      
+ 959   1                      if (flag_chs == 1)                      // Set language configuration based on check_lang() function ---- Spanish
+ 960   1                      {
+ 961   2                      shortdelay();
+ 962   2                      txframe.MsgNum = 12;                      //Message number(sequential starting at 1 for unique messages                                                 
+ 963   2                      txframe.arbID= 0x49D;             //Message ID VR off                                                                   
+ 964   2                      txframe.sz = 8;                           //8 bytes
+ 965   2                      txframe.cdat[0] = 0x00;                                                 
+ 966   2                      txframe.cdat[1] = 0x00; 
+ 967   2                      txframe.cdat[2] = 0x00;   // lever in Park                                      
+ 968   2                      txframe.cdat[3] = 0x00;   
+ 969   2                      txframe.cdat[4] = 0x00;                                                 
+ 970   2                      txframe.cdat[5] = 0x00; 
+ 971   2                      txframe.cdat[6] = 0x48;
+ 972   2                      txframe.cdat[7] = 0x00;           
+ 973   2                      tx_can_frame(0,11);
+ 974   2                      }
+ 975   1      
+ 976   1                      /*
+ 977   1                      if (flag_cht == 1)                      // Set language configuration based on check_lang() function ---- Spanish
+ 978   1                      {
+ 979   1                      shortdelay();
+C51 COMPILER V9.51   VP4_K4_V1_3_W_SWS                                                     07/19/2016 07:12:01 PAGE 17  
+
+ 980   1                      txframe.MsgNum = 12;                      //Message number(sequential starting at 1 for unique messages                                                 
+ 981   1                      txframe.arbID= 0x49D;             //Message ID VR off                                                                   
+ 982   1                      txframe.sz = 8;                           //8 bytes
+ 983   1                      txframe.cdat[0] = 0x00;                                                 
+ 984   1                      txframe.cdat[1] = 0x00; 
+ 985   1                      txframe.cdat[2] = 0x00;   // lever in Park                                      
+ 986   1                      txframe.cdat[3] = 0x00;   
+ 987   1                      txframe.cdat[4] = 0x00;                                                 
+ 988   1                      txframe.cdat[5] = 0x00; 
+ 989   1                      txframe.cdat[6] = 0x90;
+ 990   1                      txframe.cdat[7] = 0x00;           
+ 991   1                      tx_can_frame(0,11);
+ 992   1                      }
+ 993   1                      */
+ 994   1      }
+ 995          
+ 996          void init_msg_object_rx (unsigned char MsgNum,unsigned int arbID) 
+ 997          {
+ 998   1              SFRPAGE = CAN0_PAGE;
+ 999   1              CAN0ADR = IF2CMDMSK;                            // Point to Command Mask 1
+1000   1              CAN0DAT = 0x00B8;                               // Set to WRITE, and alter all Msg Obj except ID MASK and data bits
+1001   1              CAN0ADR = IF2ARB1;                              // Point to arbitration1 register
+1002   1              CAN0DAT = 0x0000;
+1003   1              CAN0DAT = (arbID << 2) | 0x8000;
+1004   1              CAN0DAT = 0x0480;                               // Msg Cntrl: set RX IE, remote frame function not enabled
+1005   1              CAN0ADR = IF2CMDRQST;                           // Point to Command Request reg.
+1006   1              CAN0DATL = MsgNum;                              // Select Msg Obj passed into function parameter list --initiates write 
+             -to Msg Obj
+1007   1                                                                                              // 3-6 CAN clock cycles to move IF register contents to the Msg Obj in CAN RAM.
+1008   1      }
+1009          
+1010          void IGN_MSG (void)
+1011          {
+1012   1      
+1013   1              /*
+1014   1              if (IGN_OFF == 0)
+1015   1              {
+1016   1                              
+1017   1                              while (iii < 300)
+1018   1                              {
+1019   1                                      if (IGN_OFF != 0)
+1020   1                                              break;
+1021   1                                      onehundredms();                                 //100ms delay loop
+1022   1                                      txframe.MsgNum = 1;                             //Message number(sequential starting at 1 for unique messages                                                   
+1023   1                                      txframe.arbID = 0x190;                  //Message ID    CBC_13 Vehicle start packet                                                                     
+1024   1                                      txframe.sz = 5;                                 //Message size(number of bytes 1-8)
+1025   1                                      txframe.cdat[0] = 0x00;         //ignition run, start not active  04 = run ;02=ACC ;0D= NormalStart, ke
+             -y in Ign,                                                 
+1026   1                                      txframe.cdat[1] = 0x22;                 //key in ignition
+1027   1                                      txframe.cdat[2] = 0x00;         //null                                  
+1028   1                                      txframe.cdat[3] = 0x00;                 //null  
+1029   1                                      txframe.cdat[4] = 0x00;
+1030   1                                      tx_can_frame(0,11);                             //transmits can frame
+1031   1                                      iii++;
+1032   1                                      
+1033   1                              }
+1034   1      
+1035   1              }
+1036   1              
+1037   1              if (IGN_ACC == 0)
+1038   1              {
+1039   1                              shortdelay();                                   //100ms delay loop
+C51 COMPILER V9.51   VP4_K4_V1_3_W_SWS                                                     07/19/2016 07:12:01 PAGE 18  
+
+1040   1                              txframe.MsgNum = 1;                             //Message number(sequential starting at 1 for unique messages                                                   
+1041   1                              txframe.arbID = 0x190;                  //Message ID    CBC_13 Vehicle start packet                                                                     
+1042   1                              txframe.sz = 5;                                 //Message size(number of bytes 1-8)
+1043   1                              txframe.cdat[0] = 0x03;         //ignition run, start not active  04 = run ;02=ACC ;0D= NormalStart, key
+             - in Ign,                                                 
+1044   1                              txframe.cdat[1] = 0x22;                 //key in ignition
+1045   1                              txframe.cdat[2] = 0x00;         //null                                  
+1046   1                              txframe.cdat[3] = 0x00;                 //null  
+1047   1                              txframe.cdat[4] = 0x00;                 //null  
+1048   1                              tx_can_frame(0,11);                             //transmits can frame
+1049   1      
+1050   1                              shortdelay();
+1051   1                              txframe.MsgNum = 20;                      //Speed message       bytes 3 and 2 set speed (VEH_SPEED)                                             
+1052   1                              txframe.arbID = 0x098;                  // speed =      km/h  /  0.0078125 km/h *       (50k/h / 0.0078125 km/h)=  6400 = 0x1
+             -900                                                 
+1053   1                              txframe.sz = 8;                           
+1054   1                              txframe.cdat[0] = 0x00;                                                 
+1055   1                              txframe.cdat[1] = 0x00; 
+1056   1                              txframe.cdat[2] = 0x00;                                         
+1057   1                              txframe.cdat[3] = 0x00;   
+1058   1                              txframe.cdat[4] = 0x00;                                                 
+1059   1                              txframe.cdat[5] = 0x00; 
+1060   1                              txframe.cdat[6] = 0x00;
+1061   1                              txframe.cdat[7] = 0x00;
+1062   1                              tx_can_frame(0,11);
+1063   1              }
+1064   1              */
+1065   1      
+1066   1              if (IGN_RUN_0 == 0)
+1067   1              {
+1068   2                              shortdelay();                                   //100ms delay loop
+1069   2                              txframe.MsgNum = 1;                             //Message number(sequential starting at 1 for unique messages                                                   
+1070   2                              txframe.arbID = 0x190;                  //Message ID    CBC_13 Vehicle start packet                                                                     
+1071   2                              txframe.sz = 5;                                 //Message size(number of bytes 1-8)
+1072   2                              txframe.cdat[0] = 0x04;         //ignition run, start not active  04 = run ;02=ACC ;0D= NormalStart, key
+             - in Ign,                                                 
+1073   2                              txframe.cdat[1] = 0x22;                 //key in ignition
+1074   2                              txframe.cdat[2] = 0x00;         //null                                  
+1075   2                              txframe.cdat[3] = 0x00;                 //null  
+1076   2                              txframe.cdat[4] = 0x00;                 //null  
+1077   2                              tx_can_frame(0,11);                             //transmits can frame
+1078   2      
+1079   2                              shortdelay();
+1080   2                              txframe.MsgNum = 20;                      //Speed message       bytes 3 and 2 set speed (VEH_SPEED)                                             
+1081   2                              txframe.arbID = 0x098;                  // speed =      km/h  /  0.0078125 km/h *       (50k/h / 0.0078125 km/h)=  6400 = 0x1
+             -900                                                 
+1082   2                              txframe.sz = 8;                           
+1083   2                              txframe.cdat[0] = 0x00;                                                 
+1084   2                              txframe.cdat[1] = 0x00; 
+1085   2                              txframe.cdat[2] = 0x00;                                         
+1086   2                              txframe.cdat[3] = 0x00;   
+1087   2                              txframe.cdat[4] = 0x00;                                                 
+1088   2                              txframe.cdat[5] = 0x00; 
+1089   2                              txframe.cdat[6] = 0x00;
+1090   2                              txframe.cdat[7] = 0x00;
+1091   2                              tx_can_frame(0,11);
+1092   2              }
+1093   1              else 
+1094   1              {
+1095   2                      while (iii < 300)
+1096   2                      {
+1097   3                      if (IGN_RUN_0 == 0)
+C51 COMPILER V9.51   VP4_K4_V1_3_W_SWS                                                     07/19/2016 07:12:01 PAGE 19  
+
+1098   3                                              break;
+1099   3                      shortdelay();                                   //100ms delay loop
+1100   3                      txframe.MsgNum = 1;                             //Message number(sequential starting at 1 for unique messages                                                   
+1101   3                      txframe.arbID = 0x190;                  //Message ID    CBC_13 Vehicle start packet                                                                     
+1102   3                      txframe.sz = 5;                                 //Message size(number of bytes 1-8)
+1103   3                      txframe.cdat[0] = 0x00;         //ignition run, start not active  04 = run ;02=ACC ;0D= NormalStart, key 
+             -in Ign,                                                 
+1104   3                      txframe.cdat[1] = 0x22;                 //key in ignition
+1105   3                      txframe.cdat[2] = 0x00;         //null                                  
+1106   3                      txframe.cdat[3] = 0x00;                 //null  
+1107   3                      txframe.cdat[4] = 0x00;                 //null  
+1108   3                      tx_can_frame(0,11);
+1109   3                      }
+1110   2      
+1111   2              }
+1112   1      
+1113   1              /*
+1114   1              if (IGN_RUN_10 == 0)
+1115   1              {
+1116   1                              shortdelay();                                   //100ms delay loop
+1117   1                              txframe.MsgNum = 1;                             //Message number(sequential starting at 1 for unique messages                                                   
+1118   1                              txframe.arbID = 0x190;                  //Message ID    CBC_13 Vehicle start packet                                                                     
+1119   1                              txframe.sz = 5;                                 //Message size(number of bytes 1-8)
+1120   1                              txframe.cdat[0] = 0x04;         //ignition run, start not active  04 = run ;02=ACC ;0D= NormalStart, key
+             - in Ign,                                                 
+1121   1                              txframe.cdat[1] = 0x22;                 //key in ignition
+1122   1                              txframe.cdat[2] = 0x00;         //null                                  
+1123   1                              txframe.cdat[3] = 0x00;                 //null  
+1124   1                              txframe.cdat[4] = 0x00;                 //null  
+1125   1                              tx_can_frame(0,11);                             //transmits can frame
+1126   1      
+1127   1                              shortdelay();
+1128   1                              txframe.MsgNum = 20;                      //Speed message       bytes 3 and 2 set speed (VEH_SPEED)                                             
+1129   1                              txframe.arbID = 0x098;                  // speed =      km/h  /  0.0078125 km/h *       (50k/h / 0.0078125 km/h)=  6400 = 0x1
+             -900                                                 
+1130   1                              txframe.sz = 8;                           
+1131   1                              txframe.cdat[0] = 0x00;                                                 
+1132   1                              txframe.cdat[1] = 0x00; 
+1133   1                              txframe.cdat[2] = 0x01;                                         
+1134   1                              txframe.cdat[3] = 0x00;   
+1135   1                              txframe.cdat[4] = 0x00;                                                 
+1136   1                              txframe.cdat[5] = 0x00; 
+1137   1                              txframe.cdat[6] = 0x00;
+1138   1                              txframe.cdat[7] = 0x00;
+1139   1                              tx_can_frame(0,11);
+1140   1              }
+1141   1      
+1142   1              if (IGN_RUN_5 == 0)
+1143   1              {
+1144   1                              shortdelay();                                   //100ms delay loop
+1145   1                              txframe.MsgNum = 1;                             //Message number(sequential starting at 1 for unique messages                                                   
+1146   1                              txframe.arbID = 0x190;                  //Message ID    CBC_13 Vehicle start packet                                                                     
+1147   1                              txframe.sz = 5;                                 //Message size(number of bytes 1-8)
+1148   1                              txframe.cdat[0] = 0x04;         //ignition run, start not active  04 = run ;02=ACC ;0D= NormalStart, key
+             - in Ign,                                                 
+1149   1                              txframe.cdat[1] = 0x22;                 //key in ignition
+1150   1                              txframe.cdat[2] = 0x00;         //null                                  
+1151   1                              txframe.cdat[3] = 0x00;                 //null  
+1152   1                              txframe.cdat[4] = 0x00;                 //null  
+1153   1                              tx_can_frame(0,11);                             //transmits can frame
+1154   1      
+1155   1                              shortdelay();
+C51 COMPILER V9.51   VP4_K4_V1_3_W_SWS                                                     07/19/2016 07:12:01 PAGE 20  
+
+1156   1                              txframe.MsgNum = 20;                      //Speed message       bytes 3 and 2 set speed (VEH_SPEED)                                             
+1157   1                              txframe.arbID = 0x098;                  // speed =      km/h  /  0.0078125 km/h *       (50k/h / 0.0078125 km/h)=  6400 = 0x1
+             -900                                                 
+1158   1                              txframe.sz = 8;                           
+1159   1                              txframe.cdat[0] = 0x00;                                                 
+1160   1                              txframe.cdat[1] = 0x00; 
+1161   1                              txframe.cdat[2] = 0x00;                                         
+1162   1                              txframe.cdat[3] = 0x80;   
+1163   1                              txframe.cdat[4] = 0x00;                                                 
+1164   1                              txframe.cdat[5] = 0x00; 
+1165   1                              txframe.cdat[6] = 0x00;
+1166   1                              txframe.cdat[7] = 0x00;
+1167   1                              tx_can_frame(0,11);
+1168   1              }
+1169   1      
+1170   1              if (IGN_START == 0)
+1171   1              {
+1172   1                              shortdelay();                                   //100ms delay loop
+1173   1                              txframe.MsgNum = 1;                             //Message number(sequential starting at 1 for unique messages                                                   
+1174   1                              txframe.arbID = 0x190;                  //Message ID    CBC_13 Vehicle start packet                                                                     
+1175   1                              txframe.sz = 5;                                 //Message size(number of bytes 1-8)
+1176   1                              txframe.cdat[0] = 0x05;         //ignition run, start not active  04 = run ;02=ACC ;0D= NormalStart, key
+             - in Ign,                                                 
+1177   1                              txframe.cdat[1] = 0x22;                 //key in ignition
+1178   1                              txframe.cdat[2] = 0x00;         //null                                  
+1179   1                              txframe.cdat[3] = 0x00;                 //null  
+1180   1                              txframe.cdat[4] = 0x00;                 //null  
+1181   1                              tx_can_frame(0,11);                             //transmits can frame
+1182   1      
+1183   1                              shortdelay();
+1184   1                              txframe.MsgNum = 20;                      //Speed message       bytes 3 and 2 set speed (VEH_SPEED)                                             
+1185   1                              txframe.arbID = 0x098;                  // speed =      km/h  /  0.0078125 km/h *       (50k/h / 0.0078125 km/h)=  6400 = 0x1
+             -900                                                 
+1186   1                              txframe.sz = 8;                           
+1187   1                              txframe.cdat[0] = 0x00;                                                 
+1188   1                              txframe.cdat[1] = 0x00; 
+1189   1                              txframe.cdat[2] = 0x00;                                         
+1190   1                              txframe.cdat[3] = 0x00;   
+1191   1                              txframe.cdat[4] = 0x00;                                                 
+1192   1                              txframe.cdat[5] = 0x00; 
+1193   1                              txframe.cdat[6] = 0x00;
+1194   1                              txframe.cdat[7] = 0x00;
+1195   1                              tx_can_frame(0,11);
+1196   1              }
+1197   1      
+1198   1              if ((IGN_OFF != 0) && (IGN_ACC != 0) && (IGN_START != 0) && (IGN_RUN_0 != 0) && (IGN_RUN_5 != 0) && (IGN_
+             -RUN_10 != 0))
+1199   1      
+1200   1              {
+1201   1                      
+1202   1                      while (iii < 100)
+1203   1                              {
+1204   1                                                                      //100ms delay loop
+1205   1                      txframe.MsgNum = 1;                             //Message number(sequential starting at 1 for unique messages                                                   
+1206   1                      txframe.arbID = 0x190;                  //Message ID    CBC_13 Vehicle start packet                                                                     
+1207   1                      txframe.sz = 5;                                 //Message size(number of bytes 1-8)
+1208   1                      txframe.cdat[0] = 0x00;         //ignition run, start not active  04 = run ;02=ACC ;0D= NormalStart, key 
+             -in Ign,                                                 
+1209   1                      txframe.cdat[1] = 0x21;                 //key in ignition
+1210   1                      txframe.cdat[2] = 0x00;         //null                                  
+1211   1                      txframe.cdat[3] = 0x00;                 //null  
+1212   1                      txframe.cdat[4] = 0x00;                 //null  
+C51 COMPILER V9.51   VP4_K4_V1_3_W_SWS                                                     07/19/2016 07:12:01 PAGE 21  
+
+1213   1                      tx_can_frame(0,11);
+1214   1                      iii++;
+1215   1                      }
+1216   1              }
+1217   1              */
+1218   1      }
+*** WARNING C290 IN LINE 214 OF VP4 K4 v1.3 w SWS.c: missing return value
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =   2150    ----
+   CONSTANT SIZE    =     17    ----
+   XDATA SIZE       =    449    ----
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =     46      20
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  3 WARNING(S),  0 ERROR(S)
