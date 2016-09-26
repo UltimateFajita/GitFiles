@@ -1,0 +1,692 @@
+C51 COMPILER V9.51   SPI                                                                   06/27/2016 11:42:25 PAGE 1   
+
+
+C51 COMPILER V9.51, COMPILATION OF MODULE SPI
+OBJECT MODULE PLACED IN spi.OBJ
+COMPILER INVOKED BY: C:\Keil\C51\BIN\c51.exe spi.c DB OE BR INCDIR(C:\SiLabs\MCU\Inc)
+
+line level    source
+
+   1          #include "c8051F040.h"
+   2          #include "stdlib.h"
+   3          #include "string.h"
+   4          #include "stdio.h"
+   5          #include "main.h"
+   6          #include "spi.h"
+   7          
+   8          // global's remember cygnal world local's maintain data space
+   9          U8 hldSFRPAGE;
+  10          extern CANFRAME xdata txframe;
+  11          extern CANFRAME xdata rxframe1[RX1BUFFERS];
+  12          extern U32 xdata RxCAN1IDs[RX1BUFFERS];
+  13          extern U8 xdata RxBuffCnt[2];
+  14          
+  15          //////////////////////////////////////////////////////////////////////////////////
+  16          // SPI Helper Functions
+  17          //////////////////////////////////////////////////////////////////////////////////
+  18          
+  19          // Initialize SPI Port for CAN1 Communications
+  20          void SPI_init()
+  21          {
+  22   1              SFRPAGE = SPI0_PAGE;
+  23   1      
+  24   1              SPIEN = 0;                                                              // Disable SPI
+  25   1      
+  26   1              SPI0CFG = 0x40;                                                 // set Clock Polarity=0, Clock Phase=0, Master Mode=1
+  27   1      
+  28   1              SPI0CKR = 0;                                                    // set bit rate 0 = 9M SPI_SPEED
+  29   1      
+  30   1              SPI0CN = 0x0F;                                                  // set 4-wire Single-Master (with NSS high), enable SPI
+  31   1      }
+  32          
+  33          
+  34          // Receive SPI Byte with dummy xmit 0xff 
+  35          U8 SPI_Rxbyte(void)
+  36          {       
+  37   1      //      SFRPAGE = SPI0_PAGE;
+  38   1              
+  39   1              SPIF = 0;                                                                       // clear end of xfer indicator
+  40   1              SPI0DAT = 0xff;                                                         // load with dummy data
+  41   1              while (!SPIF);                                                          // wait for transaction complete
+  42   1              return SPI0DAT;                                                         // return received data byte
+  43   1      
+  44   1      }
+  45          
+  46          // Transmit & Receive SPI byte
+  47          U8 SPI_Txbyte(U8 value)
+  48          {
+  49   1      //      SFRPAGE = SPI0_PAGE;
+  50   1      
+  51   1              SPIF = 0;                                                                       // clear end of xfer indicator
+  52   1              SPI0DAT = value;                                                        // load with dummy data
+  53   1              while (!SPIF);                                                          // wait for transaction complete
+  54   1              return SPI0DAT;                                                         // return received data byte
+  55   1      }
+C51 COMPILER V9.51   SPI                                                                   06/27/2016 11:42:25 PAGE 2   
+
+  56          
+  57          // (dis)Enable SPI CS and SFRPAGE for CAN1
+  58          void spiCAN(U8 Enable)
+  59          {
+  60   1              if (Enable)
+  61   1              {
+  62   2                      hldSFRPAGE = SFRPAGE;
+  63   2                      SFRPAGE = SPI0_PAGE;
+  64   2                      NSSMD0 = 0;
+  65   2              }
+  66   1              else
+  67   1              {
+  68   2                      NSSMD0 = 1;
+  69   2                      SFRPAGE = hldSFRPAGE;
+  70   2              }
+  71   1      }
+  72          
+  73          #define spi_readwrite   SPI_Txbyte
+  74          #define spi_read                SPI_Rxbyte
+  75          
+  76          /*********************************************************************************************************
+  77          ** Function name:           CAN1_reset
+  78          ** Descriptions:            reset the device
+  79          *********************************************************************************************************/
+  80          void CAN1reset(void)                                      
+  81          {
+  82   1          spiCAN(1);
+  83   1          spi_readwrite(MCP_RESET);
+  84   1          spiCAN(0);
+  85   1      
+  86   1          codedelay(20);
+  87   1      }
+  88          
+  89          /*********************************************************************************************************
+  90          ** Function name:           CAN1readRegister
+  91          ** Descriptions:            read register
+  92          *********************************************************************************************************/
+  93          U8 CAN1readRegister(U8 address)                                                                     
+  94          {
+  95   1              U8 ret;
+  96   1      
+  97   1              spiCAN(1);
+  98   1              ret = 0x55;                             // dummy lines added compiler was being stupid
+  99   1              spi_readwrite(MCP_READ);
+ 100   1              ret = 0xAA;                             // dummy lines added compiler was being stupin
+ 101   1          spi_readwrite(address);
+ 102   1              ret = spi_read();
+ 103   1      
+ 104   1              spiCAN(0);
+ 105   1          return(ret);
+ 106   1      }
+ 107          
+ 108          /*********************************************************************************************************
+ 109          ** Function name:           CAN1readRegisterS
+ 110          ** Descriptions:            read registerS
+ 111          *********************************************************************************************************
+ 112          void CAN1readRegisterS(U8 address, U8 values[], U8 n)
+ 113          {
+ 114                  U8 i;
+ 115                  
+ 116                  spiCAN(1);
+ 117                  i = 0xAA;                               // dummy lines added compiler was being stupid
+C51 COMPILER V9.51   SPI                                                                   06/27/2016 11:42:25 PAGE 3   
+
+ 118                  spi_readwrite(MCP_READ);
+ 119                  spi_readwrite(address);
+ 120                  // mcp2515 has auto-increment of address-pointer
+ 121                  for (i=0; i<n; i++) 
+ 122              {
+ 123                          values[i] = spi_read();
+ 124                  }
+ 125          
+ 126                  spiCAN(0);
+ 127          }*/
+ 128          
+ 129          /*********************************************************************************************************
+ 130          ** Function name:           CAN1setRegister
+ 131          ** Descriptions:            set register
+ 132          *********************************************************************************************************/
+ 133          void CAN1setRegister(U8 address, U8 value)
+ 134          {
+ 135   1              spiCAN(1);
+ 136   1          spi_readwrite(MCP_WRITE);
+ 137   1          spi_readwrite(address);
+ 138   1          spi_readwrite(value);
+ 139   1      
+ 140   1              spiCAN(0);
+ 141   1      }
+ 142          
+ 143          /*********************************************************************************************************
+ 144          ** Function name:           CAN1setRegisterS
+ 145          ** Descriptions:            set registerS
+ 146          *********************************************************************************************************/
+ 147          void CAN1setRegisterS(U8 address, U8 values[], U8 n)
+ 148          {
+ 149   1              U8 i;
+ 150   1      
+ 151   1              spiCAN(1);
+ 152   1          spi_readwrite(MCP_WRITE);
+ 153   1          spi_readwrite(address);
+ 154   1             
+ 155   1          for (i=0; i<n; i++) 
+ 156   1          {
+ 157   2              spi_readwrite(values[i]);
+ 158   2          }
+ 159   1      
+ 160   1              spiCAN(0);
+ 161   1      }
+ 162          
+ 163          /*********************************************************************************************************
+ 164          ** Function name:           CAN1modifyRegister
+ 165          ** Descriptions:            set bit of one register
+ 166          *********************************************************************************************************/
+ 167          void CAN1modifyRegister(U8 address, U8 mask, U8 value)
+ 168          {
+ 169   1              spiCAN(1);
+ 170   1          spi_readwrite(MCP_BITMOD);
+ 171   1          spi_readwrite(address);
+ 172   1          spi_readwrite(mask);
+ 173   1          spi_readwrite(value);
+ 174   1      
+ 175   1              spiCAN(0);
+ 176   1      }
+ 177          
+ 178          /*********************************************************************************************************
+ 179          ** Function name:           CAN1readStatus
+C51 COMPILER V9.51   SPI                                                                   06/27/2016 11:42:25 PAGE 4   
+
+ 180          ** Descriptions:            read mcp2515's Status
+ 181          *********************************************************************************************************/
+ 182          U8 CAN1readStatus(void)                             
+ 183          {
+ 184   1              U8 ret;
+ 185   1              spiCAN(1);
+ 186   1              spi_readwrite(MCP_READ_STATUS);
+ 187   1              ret = spi_read();
+ 188   1      
+ 189   1              spiCAN(0);
+ 190   1              return (ret);
+ 191   1      }
+ 192          
+ 193          /*********************************************************************************************************
+ 194          ** Function name:           CAN1readRxStat
+ 195          ** Descriptions:            read Rx Status
+ 196          *********************************************************************************************************/
+ 197          U8 CAN1readRxStat(void)                             
+ 198          {
+ 199   1              U8 ret;
+ 200   1              spiCAN(1);
+ 201   1              spi_readwrite(MCP_RX_STATUS);
+ 202   1              ret = spi_read();
+ 203   1      
+ 204   1              spiCAN(0);
+ 205   1              return (ret);
+ 206   1      }
+ 207          
+ 208          /*********************************************************************************************************
+ 209          ** Function name:           CAN1setCANCTRL_Mode
+ 210          ** Descriptions:            set control mode
+ 211          *********************************************************************************************************/
+ 212          U8 CAN1setCANCTRL_Mode(U8 newmode)
+ 213          {
+ 214   1          U8 i;
+ 215   1      
+ 216   1          CAN1modifyRegister(MCP_CANCTRL, MODE_MASK, newmode);
+ 217   1      
+ 218   1          i = CAN1readRegister(MCP_CANCTRL);
+ 219   1          i &= MODE_MASK;
+ 220   1      
+ 221   1          if ( i == newmode ) 
+ 222   1          {
+ 223   2              return MCP2515_OK;
+ 224   2          }
+ 225   1      
+ 226   1          return MCP2515_FAIL;
+ 227   1      }
+ 228          
+ 229          /*********************************************************************************************************
+ 230          ** Function name:           CAN1configRate
+ 231          ** Descriptions:            set baudrate
+ 232          *********************************************************************************************************/
+ 233          U8 CAN1configRate(U8 canSpeed)            
+ 234          {
+ 235   1          U8 set, cfg1, cfg2, cfg3;
+ 236   1          set = 1;
+ 237   1          switch (canSpeed) 
+ 238   1          {
+ 239   2              case (CAN_1000KBPS):
+ 240   2              cfg1 = 0x40;                    // SJW = 1 (2 TQ's), BRP = 0 -> .125uSec / TQ
+ 241   2              cfg2 = 0x89;                    // PRSEG = 1 -> PropSeg is 2 TQ's, PHSEG1 = 1 -> Phase1 is 2 TQ's 
+C51 COMPILER V9.51   SPI                                                                   06/27/2016 11:42:25 PAGE 5   
+
+ 242   2              cfg3 = 2;                               // PHSEG2 = 2 -> Phase2 is 3 TQ's
+ 243   2              break;                                  // Bit Time is #TQ's * BRP :: 1+2+2+3 = 8 TQ's and 8*.125uSec => 1000Kbits
+ 244   2      
+ 245   2              case (CAN_500KBPS):
+ 246   2              cfg1 = 0x40;                    // SJW = 1 (2 TQ's), BRP = 0 -> .125uSec / TQ
+ 247   2              cfg2 = 0xA3;                    // PRSEG = 3 -> PropSeg is 4 TQ's, PHSEG1 = 4 -> Phase1 is 5 TQ's
+ 248   2              cfg3 = 5;                               // PHSEG2 = 5 -> Phase2 is 6 TQ's
+ 249   2              break;                                  // Bit Time is #TQ's * BRP :: 1+4+5+6 = 16 TQ's and 16*.125uSec => 500Kbits
+ 250   2      
+ 251   2              case (CAN_125KBPS):
+ 252   2              cfg1 = 0x43;                    // SJW = 1 (2 TQ's), BRP = 3 -> .5uSec / TQ
+ 253   2              cfg2 = 0xA3;                    // PRSEG = 3 -> PropSeg is 4 TQ's, PHSEG1 = 4 -> Phase1 is 5 TQ's
+ 254   2              cfg3 = 5;                               // PHSEG2 = 5 -> Phase2 is 6 TQ's
+ 255   2              break;                                  // Bit Time is #TQ's * BRP :: 1+4+5+6 = 16 TQ's and 16*.5uSec => 125Kbits
+ 256   2              
+ 257   2              case (CAN_83KBPS):
+ 258   2              cfg1 = 0x45;                    // SJW = 1 (2 TQ's), BRP = 5 -> .75uSec / TQ
+ 259   2              cfg2 = 0xA3;                    // PRSEG = 3 -> PropSeg is 4 TQ's, PHSEG1 = 4 -> Phase1 is 5 TQ's 
+ 260   2              cfg3 = 5;                               // PHSEG2 = 5 -> Phase2 is 6 TQ's
+ 261   2              break;                                  // Bit Time is #TQ's * BRP :: 1+4+5+6 = 16 TQ's and 16*.75uSec => 83.33Kbits
+ 262   2      
+ 263   2              case (CAN_50KBPS):
+ 264   2              cfg1 = 0x47;                    // SJW = 1 (2 TQ's), BRP = 7 -> 1uSec / TQ
+ 265   2              cfg2 = 0xAD;                    // PHSEG1 = 5 -> Phase1 is 6 TQ's, PRSEG = 5 -> PropSeg is 6 TQ's
+ 266   2              cfg3 = 6;                               // PHSEG2 = 6 -> Phase2 is 7 TQ's
+ 267   2              break;                                  // Bit Time is #TQ's * BRP :: 1+6+6+7 = 20 TQ's and 20*1uSec => 50Kbits
+ 268   2      
+ 269   2      
+ 270   2              default:
+ 271   2              set = 0;
+ 272   2              break;
+ 273   2          }
+ 274   1      
+ 275   1          if (set) {
+ 276   2              CAN1setRegister(MCP_CNF1, cfg1);
+ 277   2              CAN1setRegister(MCP_CNF2, cfg2);
+ 278   2              CAN1setRegister(MCP_CNF3, cfg3);
+ 279   2              return MCP2515_OK;
+ 280   2          }
+ 281   1          else {
+ 282   2              return MCP2515_FAIL;
+ 283   2          }
+ 284   1      }
+ 285          
+ 286          /*********************************************************************************************************
+ 287          ** Function name:           CAN1write_id
+ 288          ** Descriptions:            write can id
+ 289          *********************************************************************************************************/
+ 290          void CAN1write_id( U8 mcp_addr, U32 id )
+ 291          {
+ 292   1          U16 canid;
+ 293   1          U8 tbufdata[4];
+ 294   1      
+ 295   1          canid = (U16)(id & 0x0FFFF);
+ 296   1      
+ 297   1          if ( id & EXTFLG) 
+ 298   1          {
+ 299   2              tbufdata[MCP_EID0] = (U8) (canid & 0xFF);
+ 300   2              tbufdata[MCP_EID8] = (U8) (canid >> 8);
+ 301   2              canid = (U16)(id >> 16);
+ 302   2              tbufdata[MCP_SIDL] = (U8) (canid & 0x03);
+ 303   2              tbufdata[MCP_SIDL] += (U8) ((canid & 0x1C) << 3);
+C51 COMPILER V9.51   SPI                                                                   06/27/2016 11:42:25 PAGE 6   
+
+ 304   2              tbufdata[MCP_SIDL] |= MCP_TXB_EXIDE_M;
+ 305   2              tbufdata[MCP_SIDH] = (U8) (canid >> 5 );
+ 306   2          }
+ 307   1          else 
+ 308   1          {
+ 309   2              tbufdata[MCP_SIDH] = (U8) (canid >> 3 );
+ 310   2              tbufdata[MCP_SIDL] = (U8) ((canid & 0x07 ) << 5);
+ 311   2              tbufdata[MCP_EID0] = 0;
+ 312   2              tbufdata[MCP_EID8] = 0;
+ 313   2          }
+ 314   1          CAN1setRegisterS( mcp_addr, tbufdata, 4 );
+ 315   1      }
+ 316          
+ 317          /*********************************************************************************************************
+ 318          ** Function name:           CAN1read_id
+ 319          ** Descriptions:            read can id
+ 320          *********************************************************************************************************
+ 321          void CAN1read_id( U8 mcp_addr, U32* id )
+ 322          {
+ 323              U8 tbufdata[4];
+ 324          
+ 325              CAN1readRegisterS( mcp_addr, tbufdata, 4 );
+ 326          
+ 327              *id = (tbufdata[MCP_SIDH]<<3) + (tbufdata[MCP_SIDL]>>5);
+ 328          
+ 329              if ( (tbufdata[MCP_SIDL] & MCP_TXB_EXIDE_M) ==  MCP_TXB_EXIDE_M ) 
+ 330              {
+ 331                                                                                  // extended id                  
+ 332                  *id = (*id<<2) + (tbufdata[MCP_SIDL] & 0x03);
+ 333                  *id = (*id<<8) + tbufdata[MCP_EID8];
+ 334                  *id = (*id<<8) + tbufdata[MCP_EID0];
+ 335                  *id |= EXTFLG;
+ 336              }
+ 337          }*/
+ 338          
+ 339          /*********************************************************************************************************
+ 340          ** Function name:           CAN1initCANBuffers
+ 341          ** Descriptions:            init canbuffers
+ 342          *********************************************************************************************************/
+ 343          void CAN1initCANBuffers(void)
+ 344          {
+ 345   1          U8 i;
+ 346   1              U8 a1, a2, a3;
+ 347   1          
+ 348   1          U32 ulMask = 0x1FFFFFFF, ulFilt = 0;
+ 349   1      
+ 350   1      
+ 351   1          CAN1write_id(MCP_RXM0SIDH, ulMask | EXTFLG);                        /*Set both masks to 0           */
+ 352   1          CAN1write_id(MCP_RXM1SIDH, ulMask | EXTFLG);                        /*Mask register ignores ext bit */
+ 353   1          
+ 354   1                                                                              /* Set all filters to 0         */
+ 355   1          CAN1write_id(MCP_RXF0SIDH, ulFilt | EXTFLG);                        /* RXB0: extended               */
+ 356   1          CAN1write_id(MCP_RXF1SIDH, ulFilt);                 /* RXB1: standard               */
+ 357   1          CAN1write_id(MCP_RXF2SIDH, ulFilt | EXTFLG);                        /* RXB2: extended               */
+ 358   1          CAN1write_id(MCP_RXF3SIDH, ulFilt);                 /* RXB3: standard               */
+ 359   1          CAN1write_id(MCP_RXF4SIDH, ulFilt | EXTFLG);
+ 360   1          CAN1write_id(MCP_RXF5SIDH, ulFilt);
+ 361   1          CAN1setRegister(MCP_RXB0CTRL, 0);
+ 362   1          CAN1setRegister(MCP_RXB1CTRL, 0);
+ 363   1      
+ 364   1                                                                              /* Clear, deactivate the three  */
+ 365   1                                                                              /* transmit buffers             */
+C51 COMPILER V9.51   SPI                                                                   06/27/2016 11:42:25 PAGE 7   
+
+ 366   1                                                                              /* TXBnCTRL -> TXBnD7           */
+ 367   1          a1 = MCP_TXB0CTRL;
+ 368   1          a2 = MCP_TXB1CTRL;
+ 369   1          a3 = MCP_TXB2CTRL;
+ 370   1          for (i = 0; i < 14; i++) {                                          /* in-buffer loop               */
+ 371   2              CAN1setRegister(a1, 0);
+ 372   2              CAN1setRegister(a2, 0);
+ 373   2              CAN1setRegister(a3, 0);
+ 374   2              a1++;
+ 375   2              a2++;
+ 376   2              a3++;
+ 377   2          }
+ 378   1      }
+ 379          
+ 380          /*********************************************************************************************************
+ 381          ** Function name:           CAN1init
+ 382          ** Descriptions:            init the device
+ 383          *********************************************************************************************************/
+ 384          U8 CAN1init(U8 canSpeed)                       
+ 385          {
+ 386   1      
+ 387   1              U8 res;
+ 388   1      
+ 389   1          CAN1reset();
+ 390   1      
+ 391   1      
+ 392   1      
+ 393   1          if (res = CAN1setCANCTRL_Mode(MODE_CONFIG))
+ 394   1                      return res;
+ 395   1                                                                                               
+ 396   1          if(res = CAN1configRate(canSpeed))                                          // set boadrate
+ 397   1              return res;
+ 398   1      
+ 399   1                                                                                           
+ 400   1          CAN1initCANBuffers();                                                                       // init canbuffers
+ 401   1              CAN1setRegister(MCP_BFPCTRL,0x0C);                                              // init RxPins as digital outputs
+ 402   1                                                                                         
+ 403   1          CAN1setRegister(MCP_CANINTE, MCP_RX0IF | MCP_RX1IF);        // interrupt mode
+ 404   1      
+ 405   1          /* enable both receive-buffers to receive messages with std. and ext. identifiers
+ 406   1                 and enable rollover          */
+ 407   1          CAN1modifyRegister(MCP_RXB0CTRL,
+ 408   1          MCP_RXB_RX_MASK | MCP_RXB_BUKT_MASK,
+ 409   1          MCP_RXB_RX_STDEXT | MCP_RXB_BUKT_MASK );
+ 410   1          CAN1modifyRegister(MCP_RXB1CTRL, MCP_RXB_RX_MASK,
+ 411   1          MCP_RXB_RX_STDEXT);
+ 412   1                                                                          
+ 413   1              CAN1init_FiltersNMasks(RX0_MASK,0);             // both masks to except ALL
+ 414   1              CAN1init_FiltersNMasks(RX1_MASK,0);
+ 415   1      
+ 416   1          if (res = CAN1setCANCTRL_Mode(MODE_NORMAL))                         // enter normal mode                                   
+             -                             
+ 417   1              return res;
+ 418   1      
+ 419   1          return res;
+ 420   1      }
+ 421          
+ 422          /*********************************************************************************************************
+ 423          ** Function name:           CAN1begin
+ 424          ** Descriptions:            init can and set speed
+ 425          *********************************************************************************************************/
+ 426          U8 CAN1begin(U8 speedset)
+C51 COMPILER V9.51   SPI                                                                   06/27/2016 11:42:25 PAGE 8   
+
+ 427          {
+ 428   1      
+ 429   1          if (CAN1init(speedset) == MCP2515_OK)
+ 430   1                      return CAN_OK;
+ 431   1              else
+ 432   1                      return CAN_FAILINIT;
+ 433   1      }
+ 434          
+ 435          /*********************************************************************************************************
+ 436          ** Function name:           CAN1init_Mask
+ 437          ** Descriptions:            init canid Masks
+ 438          *********************************************************************************************************/
+ 439          U8 CAN1init_FiltersNMasks(U8 num, U32 ulData)
+ 440          {
+ 441   1          U8 res = MCP2515_OK;
+ 442   1      
+ 443   1          if ((res = CAN1setCANCTRL_Mode(MODE_CONFIG)) > 0)
+ 444   1                      return res;
+ 445   1          
+ 446   1          switch (num)
+ 447   1              {
+ 448   2                      case 0: // filter 0
+ 449   2                      CAN1write_id(MCP_RXF0SIDH,ulData);
+ 450   2                      break;
+ 451   2      
+ 452   2                      case 1: // filter 1
+ 453   2                      CAN1write_id(MCP_RXF1SIDH,ulData);
+ 454   2                      break;
+ 455   2      
+ 456   2                      case 2: // filter 2
+ 457   2                      CAN1write_id(MCP_RXF2SIDH,ulData);
+ 458   2                      break;
+ 459   2      
+ 460   2                      case 3: // filter 3
+ 461   2                      CAN1write_id(MCP_RXF3SIDH,ulData);
+ 462   2                      break;
+ 463   2      
+ 464   2                      case 4: // filter 4
+ 465   2                      CAN1write_id(MCP_RXF4SIDH,ulData);
+ 466   2                      break;
+ 467   2      
+ 468   2                      case 5: // filter 5
+ 469   2                      CAN1write_id(MCP_RXF5SIDH,ulData);
+ 470   2                      break;
+ 471   2      
+ 472   2                      case 6: // mask 0
+ 473   2                      CAN1write_id(MCP_RXM0SIDH,ulData);
+ 474   2                      break;
+ 475   2      
+ 476   2                      case 7: // mask 1
+ 477   2                      CAN1write_id(MCP_RXM1SIDH,ulData);
+ 478   2                      break;
+ 479   2              }
+ 480   1          
+ 481   1          return (CAN1setCANCTRL_Mode(MODE_NORMAL));
+ 482   1      }
+ 483          
+ 484          /*********************************************************************************************************
+ 485          ** Function name:           CAN1read_canMsg
+ 486          ** Descriptions:            read CAN1 msg into rxbuf
+ 487          *********************************************************************************************************/
+ 488          U8 CAN1read_canMsg(U8 RxBuff)
+C51 COMPILER V9.51   SPI                                                                   06/27/2016 11:42:25 PAGE 9   
+
+ 489          {
+ 490   1              U8 i,j;
+ 491   1              U32 canID;
+ 492   1      
+ 493   1              spiCAN(1);
+ 494   1              spi_readwrite(RxBuff);
+ 495   1      
+ 496   1          i=spi_read();               
+ 497   1              j = spi_read();
+ 498   1              canID = (U32)(i<<3) + (j>>5);
+ 499   1      
+ 500   1          if ( (j & MCP_TXB_EXIDE_M) ==  MCP_TXB_EXIDE_M )                    // extended id 
+ 501   1          {
+ 502   2                                                                              
+ 503   2              canID = (canID<<2) + (j & 0x03);
+ 504   2              canID = (canID<<8) + (U32)spi_read();
+ 505   2              canID = (canID<<8) + (U32)spi_read();
+ 506   2              canID |= EXTFLG;
+ 507   2          }
+ 508   1              else
+ 509   1              {
+ 510   2              i = spi_read();         // not used but read anyways
+ 511   2              j = spi_read();
+ 512   2              }
+ 513   1      
+ 514   1              for (i = 0 ; i < RxBuffCnt[1] && RxCAN1IDs[i] != canID ; i++)
+ 515   1                      ;       
+ 516   1      
+ 517   1              if (i < RxBuffCnt[1])
+ 518   1              {
+ 519   2                      rxframe1[i].arbID = canID;
+ 520   2                      rxframe1[i].sz = spi_read();
+ 521   2                      for (j = 0 ; j < rxframe1[i].sz ; j++)
+ 522   2                              rxframe1[i].cdat[j] = spi_read();
+ 523   2              }                               
+ 524   1      
+ 525   1      
+ 526   1              spiCAN(0);
+ 527   1      
+ 528   1      return(i);
+ 529   1      }
+ 530          
+ 531          
+ 532          /*********************************************************************************************************
+ 533          ** Function name:           CAN1getNextFreeTXBuf
+ 534          ** Descriptions:            get Next free txbuf
+ 535          *********************************************************************************************************/
+ 536          U8 CAN1getNextFreeTXBuf(U8 *txbuf_n)
+ 537          {
+ 538   1          U8 i;
+ 539   1              U8 ctrlval;
+ 540   1          U8 ctrlregs[MCP_N_TXBUFFERS] = { MCP_TXB0CTRL, MCP_TXB1CTRL, MCP_TXB2CTRL };
+ 541   1      
+ 542   1          *txbuf_n = 0x00;
+ 543   1      
+ 544   1                                                                              // check all 3 TX-Buffers       
+ 545   1          for (i=0; i<MCP_N_TXBUFFERS; i++)
+ 546   1              {
+ 547   2              ctrlval = CAN1readRegister( ctrlregs[i] );
+ 548   2              if ( (ctrlval & MCP_TXB_TXREQ_M) == 0 )
+ 549   2                      {
+ 550   3                  *txbuf_n = ctrlregs[i];                                   // return SIDH-address of Buffer 
+C51 COMPILER V9.51   SPI                                                                   06/27/2016 11:42:25 PAGE 10  
+
+ 551   3                                                                                                          
+ 552   3                  return MCP2515_OK;
+ 553   3              }
+ 554   2          }
+ 555   1          return MCP_ALLTXBUSY;
+ 556   1      }
+ 557          
+ 558          
+ 559          /*********************************************************************************************************
+ 560          ** Function nam+e:           CAN1write_canMsg
+ 561          ** Descriptions:            write msg
+ 562          *********************************************************************************************************/
+ 563          void CAN1write_canMsg( U8 buffer_sidh_addr)
+ 564          {
+ 565   1          U16 canid;
+ 566   1              U8 tbufdata[4];
+ 567   1              U8 i;
+ 568   1      
+ 569   1          canid = (U16)(txframe.arbID & 0x0FFFF);
+ 570   1          if ( txframe.arbID & EXTFLG) 
+ 571   1          {
+ 572   2              tbufdata[MCP_EID0] = (U8) (canid & 0xFF);
+ 573   2              tbufdata[MCP_EID8] = (U8) (canid >> 8);
+ 574   2              canid = (U16)(txframe.arbID >> 16);
+ 575   2              tbufdata[MCP_SIDL] = (U8) (canid & 0x03);
+ 576   2              tbufdata[MCP_SIDL] += (U8) ((canid & 0x1C) << 3);
+ 577   2              tbufdata[MCP_SIDL] |= MCP_TXB_EXIDE_M;
+ 578   2              tbufdata[MCP_SIDH] = (U8) (canid >> 5 );
+ 579   2          }
+ 580   1          else 
+ 581   1          {
+ 582   2              tbufdata[MCP_SIDH] = (U8) (canid >> 3 );
+ 583   2              tbufdata[MCP_SIDL] = (U8) ((canid & 0x07 ) << 5);
+ 584   2              tbufdata[MCP_EID0] = 0;
+ 585   2              tbufdata[MCP_EID8] = 0;
+ 586   2          }
+ 587   1      
+ 588   1              spiCAN(1);
+ 589   1              switch(buffer_sidh_addr)
+ 590   1              {
+ 591   2                      case MCP_TXB0CTRL:
+ 592   2                              spi_readwrite(MCP_LOAD_TX0);
+ 593   2                              break;
+ 594   2                      case MCP_TXB1CTRL:
+ 595   2                              spi_readwrite(MCP_LOAD_TX1);
+ 596   2                              break;
+ 597   2                      case MCP_TXB2CTRL:
+ 598   2                              spi_readwrite(MCP_LOAD_TX2);
+ 599   2                              break;
+ 600   2              }
+ 601   1              for (i = 0 ; i < 4 ; i++)
+ 602   1                      spi_readwrite(tbufdata[i]);             // write ID
+ 603   1              spi_readwrite(txframe.sz);                      // write size (DLC)
+ 604   1              for (i = 0 ; i < txframe.sz ; i++)
+ 605   1                      spi_readwrite(txframe.cdat[i]); // write data
+ 606   1      
+ 607   1              spiCAN(0);
+ 608   1      
+ 609   1      }
+ 610          
+ 611          /*********************************************************************************************************
+ 612          ** Function name:           CAN1start_transmit
+C51 COMPILER V9.51   SPI                                                                   06/27/2016 11:42:25 PAGE 11  
+
+ 613          ** Descriptions:            start transmit
+ 614          *********************************************************************************************************/
+ 615          void CAN1start_transmit(U8 mcp_addr)              
+ 616          {
+ 617   1              spiCAN(1);
+ 618   1      
+ 619   1              switch(mcp_addr)
+ 620   1              {
+ 621   2                      case MCP_TXB0CTRL:
+ 622   2                              spi_readwrite(MCP_RTS_TX0);
+ 623   2                              break;
+ 624   2                      case MCP_TXB1CTRL:
+ 625   2                              spi_readwrite(MCP_RTS_TX1);
+ 626   2                              break;
+ 627   2                      case MCP_TXB2CTRL:
+ 628   2                              spi_readwrite(MCP_RTS_TX2);
+ 629   2                              break;
+ 630   2              }
+ 631   1      
+ 632   1              spiCAN(0);
+ 633   1      }
+ 634          
+ 635          /****************************************************************************
+ 636          * Name: CAN1 Interrupt
+ 637          *  
+ 638          * Description:  Interrupt routine for CAN1 RX/TX
+ 639          *              
+ 640          *                                     
+ 641          *****************************************************************************/
+ 642          extern bit RxCAN1;
+ 643          
+ 644          void INT_CAN1() interrupt 0                             // Ext0 (CAN1 interrupt)
+ 645          {
+ 646   1              RxCAN1 = 1;
+ 647   1              EX0 = 0;        // dis-able CAN1 interupt
+ 648   1      }                       
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =   1800    ----
+   CONSTANT SIZE    =      3    ----
+   XDATA SIZE       =   ----    ----
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =      1      44
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

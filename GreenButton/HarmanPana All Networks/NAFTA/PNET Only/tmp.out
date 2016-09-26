@@ -1,0 +1,11 @@
+
+BL51 BANKED LINKER/LOCATER V6.22 - SN: K1RIC-50A75Z
+COPYRIGHT KEIL ELEKTRONIK GmbH 1987 - 2009
+"D:\Work Files\C Code\GitFiles\GreenButton\HarmanPana All Networks\NAFTA\PNET Only\maincode.obj",
+"D:\Work Files\C Code\GitFiles\GreenButton\HarmanPana All Networks\NAFTA\PNET Only\can.obj",
+"D:\Work Files\C Code\GitFiles\GreenButton\HarmanPana All Networks\NAFTA\PNET Only\spi.obj",
+"D:\Work Files\C Code\GitFiles\GreenButton\HarmanPana All Networks\NAFTA\PNET Only\timers.obj",
+"D:\Work Files\C Code\GitFiles\GreenButton\HarmanPana All Networks\NAFTA\PNET Only\user.obj"  TO "D:\Work Files\C Code\GitFiles\GreenButton\HarmanPana All Networks\NAFTA\PNET Only\maincodeOMF" RS(256) PL(68) PW(78) 
+
+Program Size: data=102.1 xdata=809 code=16913
+LINK/LOCATE RUN COMPLETE.  0 WARNING(S),  0 ERROR(S)

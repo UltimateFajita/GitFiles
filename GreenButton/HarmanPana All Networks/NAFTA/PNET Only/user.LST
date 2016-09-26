@@ -1,0 +1,1532 @@
+C51 COMPILER V9.51   USER                                                                  09/19/2016 15:58:03 PAGE 1   
+
+
+C51 COMPILER V9.51, COMPILATION OF MODULE USER
+OBJECT MODULE PLACED IN user.OBJ
+COMPILER INVOKED BY: C:\Keil\C51\BIN\c51.exe user.c DB OE BR INCDIR(C:\SiLabs\MCU\Inc)
+
+line level    source
+
+   1          //Can Bus Simulator
+   2          #include "c8051F040.h"
+   3          #include "stdlib.h"
+   4          #include "string.h"
+   5          #include "stdio.h"
+   6          #include "main.h"
+   7          #include "spi.h"
+   8          
+   9          extern CANFRAME xdata OneTime[TXBUFFS];
+  10          extern CANFRAME xdata rxframe0[RX0BUFFERS];
+  11          extern U8 xdata MaxMesgs,MaxRxTraps;
+  12          
+  13          extern MSGTABLE xdata *Mesgs;
+  14          extern U8 xdata MesgCnt;
+  15          extern BUTTABLE xdata *Buttons;
+  16          extern U8 xdata ButtCnt;
+  17          extern RxMESG xdata *RxMesg;
+  18          extern U8 xdata RxCnt;
+  19          extern U16 xdata RelayCnf[4];
+  20          extern U8 xdata RelayChange;
+  21          extern U8 xdata RxBuffCnt[2];
+  22          
+  23          extern bit IGN_OFF_FLG;
+  24          
+  25          extern U32 keys,keyChange;
+  26          extern bit RxCAN0,RxCAN1;
+  27          extern U32 msticks;
+  28          
+  29          void User1()    // program select 1, PNET
+  30          {       
+  31   1              U32 StartTicks = 0;
+  32   1              U8  index,index1,ErrCnt,counter,vin,error, cnt;
+  33   1              U8 Day_Night_mode=0x01;
+  34   1              bit IGN_OFF=1;
+  35   1      
+  36   1              char VIN[17] = "2C3CDZBT4HH1111XM";
+  37   1      
+  38   1              error = 0;      ErrCnt=0;
+  39   1      
+  40   1      
+  41   1      
+  42   1      /***************************************************************************************
+  43   1      ****************************************************************************************
+  44   1              CAUTION WATCH XDATA BOUNDARIES.  NOT AUTOMATIC ITS UP TO YOU!!!!!!
+  45   1      ****************************************************************************************
+  46   1              // CODE CURRENTLY USES 809 xdata bytes.  THEREFORE STARTING CAN BE AT 0x32A
+  47   1              // watch at compile the xdata bytes used. if xdata > 810d need to change below
+  48   1              // xdata space ends at 0xFFF.
+  49   1      ***************************************************************************************/
+  50   1      //      Buttons = (BUTTABLE xdata *)0x32A;      // 20 buttons takes 32Abytes => 0x32A-0x4E1
+  51   1              ButtCnt = 0;                                            // each Button = 20 bytes
+  52   1      
+  53   1      //      Mesgs = (MSGTABLE xdata *)0x4E2;        // 0x4E2-0x93F -> space for 43 Tx messages 
+  54   1              MesgCnt = 0;                                            // each Mesgs = 26 bytes
+  55   1      
+C51 COMPILER V9.51   USER                                                                  09/19/2016 15:58:03 PAGE 2   
+
+  56   1      //      RxMesg = (RxMESG xdata *)0x940;         // 0x940-0xFF8 -> space for 43 Rx messages 
+  57   1              RxCnt = 0;                                                      // each RxMesg = 40 bytes
+  58   1      
+  59   1      // AUTOMATED above some,
+  60   1      // Make Sure XDATASPACE define follows compile output value  
+  61   1      #define XDATASPACE 810          // starting free address
+  62   1      
+  63   1      /***************************************************************************************
+  64   1      // Currently (809 xdata start) you get 43 Tx messages and 43 Rx message traps.  If you 
+  65   1      // need more of one and less of the other you can manipulate the starting numbers below
+  66   1      // to get it to work.
+  67   1      // also note RX0 buff size is 32 messages on CAN0, and RX1 buff size is 16 for CAN1
+  68   1      ***************************************************************************************/
+  69   1              MaxMesgs = 45;                  // number of Tx message configs
+  70   1              MaxRxTraps = 45;                // number of Rx message configs
+  71   1              while(!MemManage(MAXBUTTONS,MaxMesgs,MaxRxTraps,XDATASPACE))    // 20 button configs  
+  72   1              {
+  73   2                      MaxRxTraps--;           // reduce Message buffers till it fits.
+  74   2                      if (!MemManage(MAXBUTTONS,MaxMesgs,MaxRxTraps,XDATASPACE))
+  75   2                              MaxMesgs--;             // reduce Message buffers till it fits
+  76   2              }
+  77   1      /**************************************************************************************/
+  78   1      
+  79   1      
+  80   1      /*************************************************************************
+  81   1              Repeating message setups
+  82   1              example below-
+  83   1              message ID 0x6E2 is created at rate of 500mSec on port 1 (C). With 8 bytes 
+  84   1              of data, shown are it's defaults.
+  85   1      **************************************************************************/
+  86   1              
+  87   1              //OneTime[0].cdat[0] = 0x03;
+  88   1              //AddMessage(0,0x12B,100,1,OneTime[0].cdat);  // TGW_PWR_MAST
+  89   1                      
+  90   1              OneTime[0].cdat[0] = 0;
+  91   1              OneTime[0].cdat[1] = 0; 
+  92   1              OneTime[0].cdat[2] = 0;
+  93   1              OneTime[0].cdat[3] = 0;
+  94   1              AddMessage(0,0x122,100,4,OneTime[0].cdat);  // CBC_I4 - IGN state
+  95   1              
+  96   1              OneTime[0].cdat[0] = 0;
+  97   1              OneTime[0].cdat[1] = 0; 
+  98   1              OneTime[0].cdat[2] = 0;
+  99   1              OneTime[0].cdat[3] = 0;
+ 100   1              OneTime[0].cdat[4] = 0;
+ 101   1              OneTime[0].cdat[5] = 0;
+ 102   1              OneTime[0].cdat[6] = 0;
+ 103   1              OneTime[0].cdat[7] = 0;
+ 104   1              AddMessage(0,0x22D,200,8,OneTime[0].cdat);  // SWS_8 - Steering Wheel messages
+ 105   1              
+ 106   1              OneTime[0].cdat[0] = 0;
+ 107   1              OneTime[0].cdat[1] = 0; 
+ 108   1              OneTime[0].cdat[2] = 0;
+ 109   1              OneTime[0].cdat[3] = 0;
+ 110   1              OneTime[0].cdat[4] = 0;
+ 111   1              OneTime[0].cdat[5] = 0;
+ 112   1              OneTime[0].cdat[6] = 0;
+ 113   1              OneTime[0].cdat[7] = 0;
+ 114   1              AddMessage(0,0x273,1000,8,OneTime[0].cdat);  // ICS_KNOBS
+ 115   1              
+ 116   1              OneTime[0].cdat[0] = 0;
+ 117   1              OneTime[0].cdat[1] = 0; 
+C51 COMPILER V9.51   USER                                                                  09/19/2016 15:58:03 PAGE 3   
+
+ 118   1              OneTime[0].cdat[2] = 0x07;
+ 119   1              OneTime[0].cdat[3] = 0;
+ 120   1              OneTime[0].cdat[4] = 0;
+ 121   1              OneTime[0].cdat[5] = 0;
+ 122   1              OneTime[0].cdat[6] = 0;
+ 123   1              OneTime[0].cdat[7] = 0;
+ 124   1              AddMessage(0,0x2AD,1000,8,OneTime[0].cdat);  // CBC_CFG2
+ 125   1              
+ 126   1              OneTime[0].cdat[0] = 0x18;
+ 127   1              OneTime[0].cdat[1] = 0x38;      
+ 128   1              OneTime[0].cdat[2] = 0x8B;
+ 129   1              OneTime[0].cdat[3] = 0;
+ 130   1              AddMessage(0,0x2C2,200,4,OneTime[0].cdat);  // CBC_I3
+ 131   1              
+ 132   1              OneTime[0].cdat[0] = 0;
+ 133   1              OneTime[0].cdat[1] = 0xEE;      
+ 134   1              OneTime[0].cdat[2] = 0xEE;
+ 135   1              OneTime[0].cdat[3] = 0x2E;
+ 136   1              OneTime[0].cdat[4] = 0;
+ 137   1              OneTime[0].cdat[5] = 0;
+ 138   1              OneTime[0].cdat[6] = 0;
+ 139   1              OneTime[0].cdat[7] = 0;
+ 140   1              AddMessage(0,0x2C5,2000,8,OneTime[0].cdat);  // EcuCfg16
+ 141   1              
+ 142   1              OneTime[0].cdat[0] = 0;
+ 143   1              OneTime[0].cdat[1] = 0; 
+ 144   1              OneTime[0].cdat[2] = 0;
+ 145   1              OneTime[0].cdat[3] = 0;
+ 146   1              OneTime[0].cdat[4] = 0;
+ 147   1              OneTime[0].cdat[5] = 0;
+ 148   1              OneTime[0].cdat[6] = 0;
+ 149   1              OneTime[0].cdat[7] = 0;
+ 150   1              AddMessage(0,0x2D3,1000,8,OneTime[0].cdat);  // ICS_MSG
+ 151   1              
+ 152   1              OneTime[0].cdat[0] = 0;
+ 153   1              OneTime[0].cdat[1] = 0x01;      
+ 154   1              OneTime[0].cdat[2] = 0;
+ 155   1              OneTime[0].cdat[3] = 0x18;
+ 156   1              OneTime[0].cdat[4] = 0;
+ 157   1              OneTime[0].cdat[5] = 0;
+ 158   1              OneTime[0].cdat[6] = 0;
+ 159   1              OneTime[0].cdat[7] = 0x01;
+ 160   1              AddMessage(0,0x2FA,500,8,OneTime[0].cdat);  // CBC_I2
+ 161   1              
+ 162   1              OneTime[0].cdat[0] = 0;
+ 163   1              OneTime[0].cdat[1] = 0; 
+ 164   1              OneTime[0].cdat[2] = 0;
+ 165   1              OneTime[0].cdat[3] = 0;
+ 166   1              OneTime[0].cdat[4] = 0;
+ 167   1              OneTime[0].cdat[5] = 0x83;
+ 168   1              OneTime[0].cdat[6] = 0;
+ 169   1              OneTime[0].cdat[7] = 0;
+ 170   1              AddMessage(0,0x305,1000,8,OneTime[0].cdat);  // CBC_I6
+ 171   1              
+ 172   1              OneTime[0].cdat[0] = 0x19;
+ 173   1              OneTime[0].cdat[1] = 0; 
+ 174   1              OneTime[0].cdat[2] = 0;
+ 175   1              OneTime[0].cdat[3] = 0x01;
+ 176   1              OneTime[0].cdat[4] = 0;
+ 177   1              OneTime[0].cdat[5] = 0;
+ 178   1              OneTime[0].cdat[6] = 0;
+ 179   1              OneTime[0].cdat[7] = 0;
+C51 COMPILER V9.51   USER                                                                  09/19/2016 15:58:03 PAGE 4   
+
+ 180   1      
+ 181   1              AddMessage(0,0x381,2000,8,OneTime[0].cdat);  // VehCfg7
+ 182   1              
+ 183   1              OneTime[0].cdat[0] = 0;
+ 184   1              OneTime[0].cdat[1] = 0x01;      
+ 185   1              OneTime[0].cdat[2] = 0x4C;
+ 186   1              OneTime[0].cdat[3] = 0;
+ 187   1              OneTime[0].cdat[4] = 0;
+ 188   1              OneTime[0].cdat[5] = 0;
+ 189   1              AddMessage(0,0x3A2,1000,6,OneTime[0].cdat);  // CBC_I5
+ 190   1              
+ 191   1              OneTime[0].cdat[0] = 0x01;
+ 192   1              OneTime[0].cdat[1] = 0; 
+ 193   1              OneTime[0].cdat[2] = 0x80;
+ 194   1              OneTime[0].cdat[3] = 0;
+ 195   1              OneTime[0].cdat[4] = 0;
+ 196   1              OneTime[0].cdat[5] = 0xFF;
+ 197   1              OneTime[0].cdat[6] = 0xFF;
+ 198   1              OneTime[0].cdat[7] = 0;
+ 199   1              AddMessage(0,0x3B2,500,8,OneTime[0].cdat);  // CBC_I1
+ 200   1              
+ 201   1              OneTime[0].cdat[0] = 0x45;
+ 202   1              OneTime[0].cdat[1] = 0x30;      
+ 203   1              OneTime[0].cdat[2] = 0x22;
+ 204   1              OneTime[0].cdat[3] = 0x01;
+ 205   1              OneTime[0].cdat[4] = 0x61;
+ 206   1              OneTime[0].cdat[5] = 0xA7;
+ 207   1              OneTime[0].cdat[6] = 0xC7;
+ 208   1              OneTime[0].cdat[7] = 0x98;
+ 209   1              AddMessage(0,0x3B3,2000,8,OneTime[0].cdat);  // VehCfgCSM1
+ 210   1              
+ 211   1              OneTime[0].cdat[0] = 0xFD;
+ 212   1              OneTime[0].cdat[1] = 0x80;      
+ 213   1              OneTime[0].cdat[2] = 0;
+ 214   1              OneTime[0].cdat[3] = 0;
+ 215   1              OneTime[0].cdat[4] = 0;
+ 216   1              OneTime[0].cdat[5] = 0;
+ 217   1              OneTime[0].cdat[6] = 0;
+ 218   1              OneTime[0].cdat[7] = 0;
+ 219   1              AddMessage(0,0x3B4,2000,8,OneTime[0].cdat);  // VehCfgCSM2
+ 220   1              
+ 221   1              OneTime[0].cdat[0] = 0x3E;
+ 222   1              OneTime[0].cdat[1] = 0x1E;      
+ 223   1              OneTime[0].cdat[2] = 0x1E;
+ 224   1              OneTime[0].cdat[3] = 0;
+ 225   1              OneTime[0].cdat[4] = 0x00;
+ 226   1              OneTime[0].cdat[5] = 0x01;
+ 227   1              OneTime[0].cdat[6] = 0x90;
+ 228   1              OneTime[0].cdat[7] = 0x01;
+ 229   1              AddMessage(0,0x3DE,500,8,OneTime[0].cdat);  // CBC_CFG1
+ 230   1              
+ 231   1              OneTime[0].cdat[0] = 0;
+ 232   1              OneTime[0].cdat[1] = 0; 
+ 233   1              OneTime[0].cdat[2] = 0;
+ 234   1              OneTime[0].cdat[3] = 0;
+ 235   1              OneTime[0].cdat[4] = 0;
+ 236   1              OneTime[0].cdat[5] = 0;
+ 237   1              OneTime[0].cdat[6] = 0;
+ 238   1              OneTime[0].cdat[7] = 0;
+ 239   1              AddMessage(0,0x3E0,1000,8,OneTime[0].cdat);  // VIN
+ 240   1              
+ 241   1              OneTime[0].cdat[0] = 0xFD;
+C51 COMPILER V9.51   USER                                                                  09/19/2016 15:58:03 PAGE 5   
+
+ 242   1              OneTime[0].cdat[1] = 0x0C;      
+ 243   1              OneTime[0].cdat[2] = 0x10;
+ 244   1              OneTime[0].cdat[3] = 0x08;
+ 245   1              OneTime[0].cdat[4] = 0;
+ 246   1              OneTime[0].cdat[5] = 0;
+ 247   1              OneTime[0].cdat[6] = 0;
+ 248   1              OneTime[0].cdat[7] = 0;
+ 249   1              AddMessage(0,0x3E3,2000,8,OneTime[0].cdat);  // NET_CFG_INT
+ 250   1              
+ 251   1              OneTime[0].cdat[0] = 0x89;
+ 252   1              OneTime[0].cdat[1] = 0xDA;      
+ 253   1              OneTime[0].cdat[2] = 0x98;
+ 254   1              OneTime[0].cdat[3] = 0x06;
+ 255   1              OneTime[0].cdat[4] = 0;
+ 256   1              OneTime[0].cdat[5] = 0;
+ 257   1              OneTime[0].cdat[6] = 0;
+ 258   1              OneTime[0].cdat[7] = 0;
+ 259   1              AddMessage(0,0x3E4,2000,8,OneTime[0].cdat);  //NET_CFG_PT
+ 260   1              
+ 261   1              OneTime[0].cdat[0] = 0x45;
+ 262   1              OneTime[0].cdat[1] = 0x29;      
+ 263   1              OneTime[0].cdat[2] = 0xA2;
+ 264   1              OneTime[0].cdat[3] = 0x15;
+ 265   1              OneTime[0].cdat[4] = 0x1E;
+ 266   1              OneTime[0].cdat[5] = 0x80;
+ 267   1              OneTime[0].cdat[6] = 0xA2;
+ 268   1              OneTime[0].cdat[7] = 0x10;
+ 269   1              AddMessage(0,0x3E8,2000,8,OneTime[0].cdat);  // VehCfg1
+ 270   1              
+ 271   1              OneTime[0].cdat[0] = 0x01;
+ 272   1              OneTime[0].cdat[1] = 0; 
+ 273   1              OneTime[0].cdat[2] = 0x06;
+ 274   1              OneTime[0].cdat[3] = 0x9E;
+ 275   1              OneTime[0].cdat[4] = 0x20;
+ 276   1              OneTime[0].cdat[5] = 0x20;
+ 277   1              OneTime[0].cdat[6] = 0x20;
+ 278   1              OneTime[0].cdat[7] = 0x20;
+ 279   1              AddMessage(0,0x3E9,2000,8,OneTime[0].cdat);  // VehCfg2
+ 280   1              
+ 281   1              OneTime[0].cdat[0] = 0x41;
+ 282   1              OneTime[0].cdat[1] = 0x0D;      
+ 283   1              OneTime[0].cdat[2] = 0x22;
+ 284   1              OneTime[0].cdat[3] = 0x48;
+ 285   1              OneTime[0].cdat[4] = 0x80;
+ 286   1              OneTime[0].cdat[5] = 0x24;
+ 287   1              OneTime[0].cdat[6] = 0x03;
+ 288   1              OneTime[0].cdat[7] = 0x40;
+ 289   1              AddMessage(0,0x3EA,2000,8,OneTime[0].cdat);  // VehCfg3
+ 290   1              
+ 291   1              OneTime[0].cdat[0] = 0x40;
+ 292   1              OneTime[0].cdat[1] = 0; 
+ 293   1              OneTime[0].cdat[2] = 0;
+ 294   1              OneTime[0].cdat[3] = 0;
+ 295   1              OneTime[0].cdat[4] = 0;
+ 296   1              OneTime[0].cdat[5] = 0;
+ 297   1              OneTime[0].cdat[6] = 0x08;
+ 298   1              OneTime[0].cdat[7] = 0xC6;
+ 299   1              AddMessage(0,0x3EB,2000,8,OneTime[0].cdat);  // VehCfg4
+ 300   1              
+ 301   1              OneTime[0].cdat[0] = 0x45;
+ 302   1              OneTime[0].cdat[1] = 0x02;      
+ 303   1              OneTime[0].cdat[2] = 0x1E;
+C51 COMPILER V9.51   USER                                                                  09/19/2016 15:58:03 PAGE 6   
+
+ 304   1              OneTime[0].cdat[3] = 0x20;
+ 305   1              OneTime[0].cdat[4] = 0x19;
+ 306   1              OneTime[0].cdat[5] = 0x20;
+ 307   1              OneTime[0].cdat[6] = 0;
+ 308   1              OneTime[0].cdat[7] = 0x03;
+ 309   1              AddMessage(0,0x3F2,2000,8,OneTime[0].cdat);  // EcuCfg3
+ 310   1              
+ 311   1              OneTime[0].cdat[0] = 0x01;
+ 312   1              OneTime[0].cdat[1] = 0; 
+ 313   1              OneTime[0].cdat[2] = 0;
+ 314   1              OneTime[0].cdat[3] = 0;
+ 315   1              OneTime[0].cdat[4] = 0;
+ 316   1              OneTime[0].cdat[5] = 0;
+ 317   1              OneTime[0].cdat[6] = 0;
+ 318   1              OneTime[0].cdat[7] = 0;
+ 319   1              AddMessage(0,0x44A,2000,8,OneTime[0].cdat);  // VehCfg5
+ 320   1              
+ 321   1              OneTime[0].cdat[0] = 0x01;
+ 322   1              OneTime[0].cdat[1] = 0; 
+ 323   1              OneTime[0].cdat[2] = 0;
+ 324   1              OneTime[0].cdat[3] = 0;
+ 325   1              OneTime[0].cdat[4] = 0;
+ 326   1              OneTime[0].cdat[5] = 0;
+ 327   1              OneTime[0].cdat[6] = 0;
+ 328   1              OneTime[0].cdat[7] = 0;
+ 329   1              AddMessage(0,0x44C,2000,8,OneTime[0].cdat);  // VehCfg6
+ 330   1              
+ 331   1              OneTime[0].cdat[0] = 0;
+ 332   1              OneTime[0].cdat[1] = 0; 
+ 333   1              OneTime[0].cdat[2] = 0;
+ 334   1              OneTime[0].cdat[3] = 0;
+ 335   1              OneTime[0].cdat[4] = 0;
+ 336   1              OneTime[0].cdat[5] = 0;
+ 337   1              OneTime[0].cdat[6] = 0;
+ 338   1              OneTime[0].cdat[7] = 0;
+ 339   1              AddMessage(0,0x322,100,8,OneTime[0].cdat);  // GW_C1
+ 340   1      
+ 341   1      
+ 342   1      /*************************************************************************
+ 343   1              Button setup
+ 344   1              example below -
+ 345   1              pressing button 1 causes byte 5 of message 0x6E2 to be altered to 0xAA 
+ 346   1              for the next 5 outputs. The mask clears byte 5 leaving the rest alone.  
+ 347   1              The value (0xAA) is ORed into byte 5.
+ 348   1      **************************************************************************/
+ 349   1              #define BUTTONMASK 0xF  // only button 1 defined (bit 1) 
+ 350   1      
+ 351   1              // Volume Up
+ 352   1              OneTime[0].cdat[0] = 0xFF;      // mask bits (ANDed)
+ 353   1              OneTime[0].cdat[1] = 0xFF;
+ 354   1              OneTime[0].cdat[2] = 0; // using OneTime structure as temp storage
+ 355   1              OneTime[0].cdat[3] = 0xFF;
+ 356   1              OneTime[0].cdat[4] = 0xFF;
+ 357   1              OneTime[0].cdat[5] = 0xFF;              
+ 358   1              OneTime[0].cdat[6] = 0xFF;
+ 359   1              OneTime[0].cdat[7] = 0xFF;
+ 360   1              OneTime[1].cdat[0] = 0;         // values (ORed)
+ 361   1              OneTime[1].cdat[1] = 0;
+ 362   1              OneTime[1].cdat[2] = 0x01;
+ 363   1              OneTime[1].cdat[3] = 0;
+ 364   1              OneTime[1].cdat[4] = 0;
+ 365   1              OneTime[1].cdat[5] = 0;
+C51 COMPILER V9.51   USER                                                                  09/19/2016 15:58:03 PAGE 7   
+
+ 366   1              OneTime[1].cdat[6] = 0;
+ 367   1              OneTime[1].cdat[7] = 0;
+ 368   1      //U8 SimpleButtonConfig(U8 button,U8 port,U32 ID,U8 mask[8],U8 value[8],count);
+ 369   1              SimpleButtonConfig(19,0,0x22D,OneTime[0].cdat,OneTime[1].cdat,1);
+ 370   1      
+ 371   1              // Volume Down
+ 372   1              OneTime[0].cdat[0] = 0xFF;      // mask bits (ANDed)
+ 373   1              OneTime[0].cdat[1] = 0xFF;
+ 374   1              OneTime[0].cdat[2] = 0; // using OneTime structure as temp storage
+ 375   1              OneTime[0].cdat[3] = 0xFF;
+ 376   1              OneTime[0].cdat[4] = 0xFF;
+ 377   1              OneTime[0].cdat[5] = 0xFF;              
+ 378   1              OneTime[0].cdat[6] = 0xFF;
+ 379   1              OneTime[0].cdat[7] = 0xFF;
+ 380   1              OneTime[1].cdat[0] = 0;         // values (ORed)
+ 381   1              OneTime[1].cdat[1] = 0;
+ 382   1              OneTime[1].cdat[2] = 0x04;
+ 383   1              OneTime[1].cdat[3] = 0;
+ 384   1              OneTime[1].cdat[4] = 0;
+ 385   1              OneTime[1].cdat[5] = 0;
+ 386   1              OneTime[1].cdat[6] = 0;
+ 387   1              OneTime[1].cdat[7] = 0;
+ 388   1      //U8 SimpleButtonConfig(U8 button,U8 port,U32 ID,U8 mask[8],U8 value[8],count);
+ 389   1              SimpleButtonConfig(9,0,0x22D,OneTime[0].cdat,OneTime[1].cdat,1);
+ 390   1      
+ 391   1              // Mode
+ 392   1              OneTime[0].cdat[0] = 0xFF;      // mask bits (ANDed)
+ 393   1              OneTime[0].cdat[1] = 0xFF;
+ 394   1              OneTime[0].cdat[2] = 0; // using OneTime structure as temp storage
+ 395   1              OneTime[0].cdat[3] = 0xFF;
+ 396   1              OneTime[0].cdat[4] = 0xFF;
+ 397   1              OneTime[0].cdat[5] = 0xFF;              
+ 398   1              OneTime[0].cdat[6] = 0xFF;
+ 399   1              OneTime[0].cdat[7] = 0xFF;
+ 400   1              OneTime[1].cdat[0] = 0;         // values (ORed)
+ 401   1              OneTime[1].cdat[1] = 0;
+ 402   1              OneTime[1].cdat[2] = 0x10;
+ 403   1              OneTime[1].cdat[3] = 0;
+ 404   1              OneTime[1].cdat[4] = 0;
+ 405   1              OneTime[1].cdat[5] = 0;
+ 406   1              OneTime[1].cdat[6] = 0;
+ 407   1              OneTime[1].cdat[7] = 0;
+ 408   1      //U8 SimpleButtonConfig(U8 button,U8 port,U32 ID,U8 mask[8],U8 value[8],count);
+ 409   1              SimpleButtonConfig(18,0,0x22D,OneTime[0].cdat,OneTime[1].cdat,1);
+ 410   1      
+ 411   1              // Preset
+ 412   1              OneTime[0].cdat[0] = 0xFF;      // mask bits (ANDed)
+ 413   1              OneTime[0].cdat[1] = 0xFF;
+ 414   1              OneTime[0].cdat[2] = 0xFF;      // using OneTime structure as temp storage
+ 415   1              OneTime[0].cdat[3] = 0xFF;
+ 416   1              OneTime[0].cdat[4] = 0;
+ 417   1              OneTime[0].cdat[5] = 0xFF;              
+ 418   1              OneTime[0].cdat[6] = 0xFF;
+ 419   1              OneTime[0].cdat[7] = 0xFF;
+ 420   1              OneTime[1].cdat[0] = 0;         // values (ORed)
+ 421   1              OneTime[1].cdat[1] = 0;
+ 422   1              OneTime[1].cdat[2] = 0;
+ 423   1              OneTime[1].cdat[3] = 0;
+ 424   1              OneTime[1].cdat[4] = 0x01;
+ 425   1              OneTime[1].cdat[5] = 0;
+ 426   1              OneTime[1].cdat[6] = 0;
+ 427   1              OneTime[1].cdat[7] = 0;
+C51 COMPILER V9.51   USER                                                                  09/19/2016 15:58:03 PAGE 8   
+
+ 428   1      //U8 SimpleButtonConfig(U8 button,U8 port,U32 ID,U8 mask[8],U8 value[8],count);
+ 429   1              SimpleButtonConfig(8,0,0x22D,OneTime[0].cdat,OneTime[1].cdat,1);
+ 430   1      
+ 431   1              // Seek Up
+ 432   1              OneTime[0].cdat[0] = 0xFF;      // mask bits (ANDed)
+ 433   1              OneTime[0].cdat[1] = 0xFF;
+ 434   1              OneTime[0].cdat[2] = 0;         // using OneTime structure as temp storage
+ 435   1              OneTime[0].cdat[3] = 0xFF;
+ 436   1              OneTime[0].cdat[4] = 0xFF;
+ 437   1              OneTime[0].cdat[5] = 0xFF;              
+ 438   1              OneTime[0].cdat[6] = 0xFF;
+ 439   1              OneTime[0].cdat[7] = 0xFF;
+ 440   1              OneTime[1].cdat[0] = 0;         // values (ORed)
+ 441   1              OneTime[1].cdat[1] = 0;
+ 442   1              OneTime[1].cdat[2] = 0x40;
+ 443   1              OneTime[1].cdat[3] = 0;
+ 444   1              OneTime[1].cdat[4] = 0;
+ 445   1              OneTime[1].cdat[5] = 0;
+ 446   1              OneTime[1].cdat[6] = 0;
+ 447   1              OneTime[1].cdat[7] = 0;
+ 448   1      //U8 SimpleButtonConfig(U8 button,U8 port,U32 ID,U8 mask[8],U8 value[8],count);
+ 449   1              SimpleButtonConfig(17,0,0x22D,OneTime[0].cdat,OneTime[1].cdat,1);
+ 450   1      
+ 451   1              // Seek Down
+ 452   1              OneTime[0].cdat[0] = 0xFF;      // mask bits (ANDed)
+ 453   1              OneTime[0].cdat[1] = 0xFF;
+ 454   1              OneTime[0].cdat[2] = 0xFF;      // using OneTime structure as temp storage
+ 455   1              OneTime[0].cdat[3] = 0;
+ 456   1              OneTime[0].cdat[4] = 0xFF;
+ 457   1              OneTime[0].cdat[5] = 0xFF;              
+ 458   1              OneTime[0].cdat[6] = 0xFF;
+ 459   1              OneTime[0].cdat[7] = 0xFF;
+ 460   1              OneTime[1].cdat[0] = 0;         // values (ORed)
+ 461   1              OneTime[1].cdat[1] = 0;
+ 462   1              OneTime[1].cdat[2] = 0;
+ 463   1              OneTime[1].cdat[3] = 0x01;
+ 464   1              OneTime[1].cdat[4] = 0;
+ 465   1              OneTime[1].cdat[5] = 0;
+ 466   1              OneTime[1].cdat[6] = 0;
+ 467   1              OneTime[1].cdat[7] = 0;
+ 468   1      //U8 SimpleButtonConfig(U8 button,U8 port,U32 ID,U8 mask[8],U8 value[8],count);
+ 469   1              SimpleButtonConfig(7,0,0x22D,OneTime[0].cdat,OneTime[1].cdat,1);
+ 470   1      
+ 471   1              // Phone Pickup
+ 472   1              OneTime[0].cdat[0] = 0xFF;      // mask bits (ANDed)
+ 473   1              OneTime[0].cdat[1] = 0xFF;
+ 474   1              OneTime[0].cdat[2] = 0xFF;      // using OneTime structure as temp storage
+ 475   1              OneTime[0].cdat[3] = 0;
+ 476   1              OneTime[0].cdat[4] = 0xFF;
+ 477   1              OneTime[0].cdat[5] = 0xFF;              
+ 478   1              OneTime[0].cdat[6] = 0xFF;
+ 479   1              OneTime[0].cdat[7] = 0xFF;
+ 480   1              OneTime[1].cdat[0] = 0;         // values (ORed)
+ 481   1              OneTime[1].cdat[1] = 0;
+ 482   1              OneTime[1].cdat[2] = 0;
+ 483   1              OneTime[1].cdat[3] = 0x10;
+ 484   1              OneTime[1].cdat[4] = 0;
+ 485   1              OneTime[1].cdat[5] = 0;
+ 486   1              OneTime[1].cdat[6] = 0;
+ 487   1              OneTime[1].cdat[7] = 0;
+ 488   1      //U8 SimpleButtonConfig(U8 button,U8 port,U32 ID,U8 mask[8],U8 value[8],count);
+ 489   1              SimpleButtonConfig(16,0,0x22D,OneTime[0].cdat,OneTime[1].cdat,1);
+C51 COMPILER V9.51   USER                                                                  09/19/2016 15:58:03 PAGE 9   
+
+ 490   1      
+ 491   1              // Phone Hangup
+ 492   1              OneTime[0].cdat[0] = 0xFF;      // mask bits (ANDed)
+ 493   1              OneTime[0].cdat[1] = 0xFF;
+ 494   1              OneTime[0].cdat[2] = 0xFF;      // using OneTime structure as temp storage
+ 495   1              OneTime[0].cdat[3] = 0;
+ 496   1              OneTime[0].cdat[4] = 0xFF;
+ 497   1              OneTime[0].cdat[5] = 0xFF;              
+ 498   1              OneTime[0].cdat[6] = 0xFF;
+ 499   1              OneTime[0].cdat[7] = 0xFF;
+ 500   1              OneTime[1].cdat[0] = 0;         // values (ORed)
+ 501   1              OneTime[1].cdat[1] = 0;
+ 502   1              OneTime[1].cdat[2] = 0;
+ 503   1              OneTime[1].cdat[3] = 0x40;
+ 504   1              OneTime[1].cdat[4] = 0;
+ 505   1              OneTime[1].cdat[5] = 0;
+ 506   1              OneTime[1].cdat[6] = 0;
+ 507   1              OneTime[1].cdat[7] = 0;
+ 508   1      //U8 SimpleButtonConfig(U8 button,U8 port,U32 ID,U8 mask[8],U8 value[8],count);
+ 509   1              SimpleButtonConfig(6,0,0x22D,OneTime[0].cdat,OneTime[1].cdat,1);
+ 510   1      
+ 511   1              // VR
+ 512   1              OneTime[0].cdat[0] = 0xFF;      // mask bits (ANDed)
+ 513   1              OneTime[0].cdat[1] = 0xFF;
+ 514   1              OneTime[0].cdat[2] = 0xFF;      // using OneTime structure as temp storage
+ 515   1              OneTime[0].cdat[3] = 0xFF;
+ 516   1              OneTime[0].cdat[4] = 0;
+ 517   1              OneTime[0].cdat[5] = 0xFF;              
+ 518   1              OneTime[0].cdat[6] = 0xFF;
+ 519   1              OneTime[0].cdat[7] = 0xFF;
+ 520   1              OneTime[1].cdat[0] = 0;         // values (ORed)
+ 521   1              OneTime[1].cdat[1] = 0;
+ 522   1              OneTime[1].cdat[2] = 0;
+ 523   1              OneTime[1].cdat[3] = 0;
+ 524   1              OneTime[1].cdat[4] = 0x04;
+ 525   1              OneTime[1].cdat[5] = 0;
+ 526   1              OneTime[1].cdat[6] = 0;
+ 527   1              OneTime[1].cdat[7] = 0;
+ 528   1      //U8 SimpleButtonConfig(U8 button,U8 port,U32 ID,U8 mask[8],U8 value[8],count);
+ 529   1              SimpleButtonConfig(15,0,0x22D,OneTime[0].cdat,OneTime[1].cdat,1);
+ 530   1      
+ 531   1              // Screen Off
+ 532   1              OneTime[0].cdat[0] = 0xFF;      // mask bits (ANDed)
+ 533   1              OneTime[0].cdat[1] = 0xFF;
+ 534   1              OneTime[0].cdat[2] = 0; // using OneTime structure as temp storage
+ 535   1              OneTime[0].cdat[3] = 0xFF;
+ 536   1              OneTime[0].cdat[4] = 0xFF;
+ 537   1              OneTime[0].cdat[5] = 0xFF;              
+ 538   1              OneTime[0].cdat[6] = 0xFF;
+ 539   1              OneTime[0].cdat[7] = 0xFF;
+ 540   1              OneTime[1].cdat[0] = 0;         // values (ORed)
+ 541   1              OneTime[1].cdat[1] = 0;
+ 542   1              OneTime[1].cdat[2] = 0x20;
+ 543   1              OneTime[1].cdat[3] = 0;
+ 544   1              OneTime[1].cdat[4] = 0;
+ 545   1              OneTime[1].cdat[5] = 0;
+ 546   1              OneTime[1].cdat[6] = 0;
+ 547   1              OneTime[1].cdat[7] = 0;
+ 548   1      //U8 SimpleButtonConfig(U8 button,U8 port,U32 ID,U8 mask[8],U8 value[8],count);
+ 549   1              SimpleButtonConfig(5,0,0x2D3,OneTime[0].cdat,OneTime[1].cdat,1);
+ 550   1      
+ 551   1      /*      // Mute
+C51 COMPILER V9.51   USER                                                                  09/19/2016 15:58:03 PAGE 10  
+
+ 552   1              OneTime[0].cdat[0] = 0xFF;      // mask bits (ANDed)
+ 553   1              OneTime[0].cdat[1] = 0xFF;
+ 554   1              OneTime[0].cdat[2] = 0; // using OneTime structure as temp storage
+ 555   1              OneTime[0].cdat[3] = 0xFF;
+ 556   1              OneTime[0].cdat[4] = 0xFF;
+ 557   1              OneTime[0].cdat[5] = 0xFF;              
+ 558   1              OneTime[0].cdat[6] = 0xFF;
+ 559   1              OneTime[0].cdat[7] = 0xFF;
+ 560   1              OneTime[1].cdat[0] = 0;         // values (ORed)
+ 561   1              OneTime[1].cdat[1] = 0;
+ 562   1              OneTime[1].cdat[2] = 0x01;
+ 563   1              OneTime[1].cdat[3] = 0;
+ 564   1              OneTime[1].cdat[4] = 0;
+ 565   1              OneTime[1].cdat[5] = 0;
+ 566   1              OneTime[1].cdat[6] = 0;
+ 567   1              OneTime[1].cdat[7] = 0;
+ 568   1      //U8 SimpleButtonConfig(U8 button,U8 port,U32 ID,U8 mask[8],U8 value[8],count);
+ 569   1              SimpleButtonConfig(14,0,0x2D3,OneTime[0].cdat,OneTime[1].cdat,1); */
+ 570   1      
+ 571   1              // Radio Off
+ 572   1              OneTime[0].cdat[0] = 0xFF;      // mask bits (ANDed)
+ 573   1              OneTime[0].cdat[1] = 0xFF;
+ 574   1              OneTime[0].cdat[2] = 0xFF;      // using OneTime structure as temp storage
+ 575   1              OneTime[0].cdat[3] = 0xFF;
+ 576   1              OneTime[0].cdat[4] = 0xFF;
+ 577   1              OneTime[0].cdat[5] = 0xFF;              
+ 578   1              OneTime[0].cdat[6] = 0xFF;
+ 579   1              OneTime[0].cdat[7] = 0;
+ 580   1              OneTime[1].cdat[0] = 0;         // values (ORed)
+ 581   1              OneTime[1].cdat[1] = 0;
+ 582   1              OneTime[1].cdat[2] = 0;
+ 583   1              OneTime[1].cdat[3] = 0;
+ 584   1              OneTime[1].cdat[4] = 0;
+ 585   1              OneTime[1].cdat[5] = 0;
+ 586   1              OneTime[1].cdat[6] = 0;
+ 587   1              OneTime[1].cdat[7] = 0x40;
+ 588   1      //U8 SimpleButtonConfig(U8 button,U8 port,U32 ID,U8 mask[8],U8 value[8],count);
+ 589   1              SimpleButtonConfig(14,0,0x2D3,OneTime[0].cdat,OneTime[1].cdat,1);
+ 590   1      
+ 591   1              // Back
+ 592   1              OneTime[0].cdat[0] = 0xFF;      // mask bits (ANDed)
+ 593   1              OneTime[0].cdat[1] = 0xFF;
+ 594   1              OneTime[0].cdat[2] = 0xFF;      // using OneTime structure as temp storage
+ 595   1              OneTime[0].cdat[3] = 0;
+ 596   1              OneTime[0].cdat[4] = 0xFF;
+ 597   1              OneTime[0].cdat[5] = 0xFF;              
+ 598   1              OneTime[0].cdat[6] = 0xFF;
+ 599   1              OneTime[0].cdat[7] = 0xFF;
+ 600   1              OneTime[1].cdat[0] = 0;         // values (ORed)
+ 601   1              OneTime[1].cdat[1] = 0;
+ 602   1              OneTime[1].cdat[2] = 0;
+ 603   1              OneTime[1].cdat[3] = 0x02;
+ 604   1              OneTime[1].cdat[4] = 0;
+ 605   1              OneTime[1].cdat[5] = 0;
+ 606   1              OneTime[1].cdat[6] = 0;
+ 607   1              OneTime[1].cdat[7] = 0;
+ 608   1      //U8 SimpleButtonConfig(U8 button,U8 port,U32 ID,U8 mask[8],U8 value[8],count);
+ 609   1              SimpleButtonConfig(4,0,0x2D3,OneTime[0].cdat,OneTime[1].cdat,1);
+ 610   1      
+ 611   1              // Browse/Enter
+ 612   1              OneTime[0].cdat[0] = 0xFF;      // mask bits (ANDed)
+ 613   1              OneTime[0].cdat[1] = 0xFF;
+C51 COMPILER V9.51   USER                                                                  09/19/2016 15:58:03 PAGE 11  
+
+ 614   1              OneTime[0].cdat[2] = 0; // using OneTime structure as temp storage
+ 615   1              OneTime[0].cdat[3] = 0xFF;
+ 616   1              OneTime[0].cdat[4] = 0xFF;
+ 617   1              OneTime[0].cdat[5] = 0xFF;              
+ 618   1              OneTime[0].cdat[6] = 0xFF;
+ 619   1              OneTime[0].cdat[7] = 0xFF;
+ 620   1              OneTime[1].cdat[0] = 0;         // values (ORed)
+ 621   1              OneTime[1].cdat[1] = 0;
+ 622   1              OneTime[1].cdat[2] = 0x02;
+ 623   1              OneTime[1].cdat[3] = 0;
+ 624   1              OneTime[1].cdat[4] = 0;
+ 625   1              OneTime[1].cdat[5] = 0;
+ 626   1              OneTime[1].cdat[6] = 0;
+ 627   1              OneTime[1].cdat[7] = 0;
+ 628   1      //U8 SimpleButtonConfig(U8 button,U8 port,U32 ID,U8 mask[8],U8 value[8],count);
+ 629   1              SimpleButtonConfig(13,0,0x2D3,OneTime[0].cdat,OneTime[1].cdat,1);
+ 630   1      
+ 631   1              // Screenshot
+ 632   1              OneTime[0].cdat[0] = 0xFF;      // mask bits (ANDed)
+ 633   1              OneTime[0].cdat[1] = 0xFF;
+ 634   1              OneTime[0].cdat[2] = 0xFF;      // using OneTime structure as temp storage
+ 635   1              OneTime[0].cdat[3] = 0xFF;
+ 636   1              OneTime[0].cdat[4] = 0xFF;
+ 637   1              OneTime[0].cdat[5] = 0;         
+ 638   1              OneTime[0].cdat[6] = 0xFF;
+ 639   1              OneTime[0].cdat[7] = 0xFF;
+ 640   1              OneTime[1].cdat[0] = 0;         // values (ORed)
+ 641   1              OneTime[1].cdat[1] = 0;
+ 642   1              OneTime[1].cdat[2] = 0;
+ 643   1              OneTime[1].cdat[3] = 0;
+ 644   1              OneTime[1].cdat[4] = 0;
+ 645   1              OneTime[1].cdat[5] = 0x4C;
+ 646   1              OneTime[1].cdat[6] = 0;
+ 647   1              OneTime[1].cdat[7] = 0;
+ 648   1      //U8 SimpleButtonConfig(U8 button,U8 port,U32 ID,U8 mask[8],U8 value[8],count);
+ 649   1              SimpleButtonConfig(3,0,0x2D3,OneTime[0].cdat,OneTime[1].cdat,5);
+ 650   1      
+ 651   1      
+ 652   1              // ENG. Mode
+ 653   1              OneTime[0].cdat[0] = 0xFF;      // mask bits (ANDed)
+ 654   1              OneTime[0].cdat[1] = 0xFF;
+ 655   1              OneTime[0].cdat[2] = 0xFF;      // using OneTime structure as temp storage
+ 656   1              OneTime[0].cdat[3] = 0xFF;
+ 657   1              OneTime[0].cdat[4] = 0xFF;
+ 658   1              OneTime[0].cdat[5] = 0;         
+ 659   1              OneTime[0].cdat[6] = 0xFF;
+ 660   1              OneTime[0].cdat[7] = 0xFF;
+ 661   1              OneTime[1].cdat[0] = 0;         // values (ORed)
+ 662   1              OneTime[1].cdat[1] = 0;
+ 663   1              OneTime[1].cdat[2] = 0;
+ 664   1              OneTime[1].cdat[3] = 0;
+ 665   1              OneTime[1].cdat[4] = 0;
+ 666   1              OneTime[1].cdat[5] = 0x0C;
+ 667   1              OneTime[1].cdat[6] = 0;
+ 668   1              OneTime[1].cdat[7] = 0;
+ 669   1      //U8 SimpleButtonConfig(U8 button,U8 port,U32 ID,U8 mask[8],U8 value[8],count);
+ 670   1              SimpleButtonConfig(12,0,0x2D3,OneTime[0].cdat,OneTime[1].cdat,5);
+ 671   1      
+ 672   1              // Dealer Mode
+ 673   1              OneTime[0].cdat[0] = 0xFF;      // mask bits (ANDed)
+ 674   1              OneTime[0].cdat[1] = 0xFF;
+ 675   1              OneTime[0].cdat[2] = 0xFF;      // using OneTime structure as temp storage
+C51 COMPILER V9.51   USER                                                                  09/19/2016 15:58:03 PAGE 12  
+
+ 676   1              OneTime[0].cdat[3] = 0xFF;
+ 677   1              OneTime[0].cdat[4] = 0xFF;
+ 678   1              OneTime[0].cdat[5] = 0;         
+ 679   1              OneTime[0].cdat[6] = 0xFF;
+ 680   1              OneTime[0].cdat[7] = 0xFF;
+ 681   1              OneTime[1].cdat[0] = 0;         // values (ORed)
+ 682   1              OneTime[1].cdat[1] = 0;
+ 683   1              OneTime[1].cdat[2] = 0;
+ 684   1              OneTime[1].cdat[3] = 0;
+ 685   1              OneTime[1].cdat[4] = 0;
+ 686   1              OneTime[1].cdat[5] = 0x8C;
+ 687   1              OneTime[1].cdat[6] = 0;
+ 688   1              OneTime[1].cdat[7] = 0;
+ 689   1      //U8 SimpleButtonConfig(U8 button,U8 port,U32 ID,U8 mask[8],U8 value[8],count);
+ 690   1              SimpleButtonConfig(2,0,0x2D3,OneTime[0].cdat,OneTime[1].cdat,5);
+ 691   1      
+ 692   1      
+ 693   1              // Night Mode
+ 694   1              //Day_Night_mode ^= 0x01;
+ 695   1              OneTime[0].cdat[0] = 0xFF;      // mask bits (ANDed)
+ 696   1              OneTime[0].cdat[1] = 0;
+ 697   1              OneTime[0].cdat[2] = 0xFF;      // using OneTime structure as temp storage
+ 698   1              OneTime[0].cdat[3] = 0xFF;
+ 699   1              OneTime[0].cdat[4] = 0xFF;
+ 700   1              OneTime[0].cdat[5] = 0xFF;              
+ 701   1              OneTime[0].cdat[6] = 0xFF;
+ 702   1              OneTime[0].cdat[7] = 0xFF;
+ 703   1              OneTime[1].cdat[0] = 0;         // values (ORed)
+ 704   1              OneTime[1].cdat[1] = 0x00;
+ 705   1              OneTime[1].cdat[2] = 0;
+ 706   1              OneTime[1].cdat[3] = 0;
+ 707   1              OneTime[1].cdat[4] = 0;
+ 708   1              OneTime[1].cdat[5] = 0;
+ 709   1              OneTime[1].cdat[6] = 0;
+ 710   1              OneTime[1].cdat[7] = 0;
+ 711   1      //U8 SimpleButtonConfig(U8 button,U8 port,U32 ID,U8 mask[8],U8 value[8],count);
+ 712   1              SimpleButtonConfig(11,0,0x2FA,OneTime[0].cdat,OneTime[1].cdat,0);
+ 713   1      
+ 714   1      
+ 715   1              // Day Mode
+ 716   1              OneTime[0].cdat[0] = 0xFF;      // mask bits (ANDed)
+ 717   1              OneTime[0].cdat[1] = 0;
+ 718   1              OneTime[0].cdat[2] = 0xFF;      // using OneTime structure as temp storage
+ 719   1              OneTime[0].cdat[3] = 0xFF;
+ 720   1              OneTime[0].cdat[4] = 0xFF;
+ 721   1              OneTime[0].cdat[5] = 0xFF;              
+ 722   1              OneTime[0].cdat[6] = 0xFF;
+ 723   1              OneTime[0].cdat[7] = 0xFF;
+ 724   1              OneTime[1].cdat[0] = 0;         // values (ORed)
+ 725   1              OneTime[1].cdat[1] = 0x01;
+ 726   1              OneTime[1].cdat[2] = 0;
+ 727   1              OneTime[1].cdat[3] = 0;
+ 728   1              OneTime[1].cdat[4] = 0;
+ 729   1              OneTime[1].cdat[5] = 0;
+ 730   1              OneTime[1].cdat[6] = 0;
+ 731   1              OneTime[1].cdat[7] = 0;
+ 732   1      //U8 SimpleButtonConfig(U8 button,U8 port,U32 ID,U8 mask[8],U8 value[8],count);
+ 733   1              SimpleButtonConfig(1,0,0x2FA,OneTime[0].cdat,OneTime[1].cdat,0); 
+ 734   1      
+ 735   1      
+ 736   1      /*
+ 737   1              // Door Ajar
+C51 COMPILER V9.51   USER                                                                  09/19/2016 15:58:03 PAGE 13  
+
+ 738   1              OneTime[0].cdat[0] = 0xFF;      // mask bits (ANDed)
+ 739   1              OneTime[0].cdat[1] = 0xFF;
+ 740   1              OneTime[0].cdat[2] = 0xFF;      // using OneTime structure as temp storage
+ 741   1              OneTime[0].cdat[3] = 0xFF;
+ 742   1              OneTime[0].cdat[4] = 0;
+ 743   1              OneTime[0].cdat[5] = 0xFF;              
+ 744   1              OneTime[0].cdat[6] = 0xFF;
+ 745   1              OneTime[0].cdat[7] = 0xFF;
+ 746   1              OneTime[1].cdat[0] = 0;         // values (ORed)
+ 747   1              OneTime[1].cdat[1] = 0;
+ 748   1              OneTime[1].cdat[2] = 0;
+ 749   1              OneTime[1].cdat[3] = 0;
+ 750   1              OneTime[1].cdat[4] = 0x80;
+ 751   1              OneTime[1].cdat[5] = 0;
+ 752   1              OneTime[1].cdat[6] = 0;
+ 753   1              OneTime[1].cdat[7] = 0;
+ 754   1      //U8 SimpleButtonConfig(U8 button,U8 port,U32 ID,U8 mask[8],U8 value[8],count);
+ 755   1              SimpleButtonConfig(10,0,0x22D,OneTime[0].cdat,OneTime[1].cdat,1);
+ 756   1      
+ 757   1              // Theft Alarm
+ 758   1              OneTime[0].cdat[0] = 0xFF;      // mask bits (ANDed)
+ 759   1              OneTime[0].cdat[1] = 0xFF;
+ 760   1              OneTime[0].cdat[2] = 0xFF;      // using OneTime structure as temp storage
+ 761   1              OneTime[0].cdat[3] = 0xFF;
+ 762   1              OneTime[0].cdat[4] = 0;
+ 763   1              OneTime[0].cdat[5] = 0xFF;              
+ 764   1              OneTime[0].cdat[6] = 0xFF;
+ 765   1              OneTime[0].cdat[7] = 0xFF;
+ 766   1              OneTime[1].cdat[0] = 0;         // values (ORed)
+ 767   1              OneTime[1].cdat[1] = 0;
+ 768   1              OneTime[1].cdat[2] = 0;
+ 769   1              OneTime[1].cdat[3] = 0;
+ 770   1              OneTime[1].cdat[4] = 0x80;
+ 771   1              OneTime[1].cdat[5] = 0;
+ 772   1              OneTime[1].cdat[6] = 0;
+ 773   1              OneTime[1].cdat[7] = 0;
+ 774   1      //U8 SimpleButtonConfig(U8 button,U8 port,U32 ID,U8 mask[8],U8 value[8],count);
+ 775   1              SimpleButtonConfig(,0,0x22D,OneTime[0].cdat,OneTime[1].cdat,1);
+ 776   1      */
+ 777   1      
+ 778   1      // Phone Pickup Long Press
+ 779   1              OneTime[0].cdat[0] = 0xFF;      // mask bits (ANDed)
+ 780   1              OneTime[0].cdat[1] = 0xFF;
+ 781   1              OneTime[0].cdat[2] = 0xFF;      // using OneTime structure as temp storage
+ 782   1              OneTime[0].cdat[3] = 0;
+ 783   1              OneTime[0].cdat[4] = 0xFF;
+ 784   1              OneTime[0].cdat[5] = 0xFF;              
+ 785   1              OneTime[0].cdat[6] = 0xFF;
+ 786   1              OneTime[0].cdat[7] = 0xFF;
+ 787   1              OneTime[1].cdat[0] = 0;         // values (ORed)
+ 788   1              OneTime[1].cdat[1] = 0;
+ 789   1              OneTime[1].cdat[2] = 0;
+ 790   1              OneTime[1].cdat[3] = 0x10;
+ 791   1              OneTime[1].cdat[4] = 0;
+ 792   1              OneTime[1].cdat[5] = 0;
+ 793   1              OneTime[1].cdat[6] = 0;
+ 794   1              OneTime[1].cdat[7] = 0;
+ 795   1      //U8 SimpleButtonConfig(U8 button,U8 port,U32 ID,U8 mask[8],U8 value[8],count);
+ 796   1              SimpleButtonConfig(10,0,0x22D,OneTime[0].cdat,OneTime[1].cdat,4);
+ 797   1      
+ 798   1      // VR Long Press
+ 799   1              OneTime[0].cdat[0] = 0xFF;      // mask bits (ANDed)
+C51 COMPILER V9.51   USER                                                                  09/19/2016 15:58:03 PAGE 14  
+
+ 800   1              OneTime[0].cdat[1] = 0xFF;
+ 801   1              OneTime[0].cdat[2] = 0xFF;      // using OneTime structure as temp storage
+ 802   1              OneTime[0].cdat[3] = 0xFF;
+ 803   1              OneTime[0].cdat[4] = 0;
+ 804   1              OneTime[0].cdat[5] = 0xFF;              
+ 805   1              OneTime[0].cdat[6] = 0xFF;
+ 806   1              OneTime[0].cdat[7] = 0xFF;
+ 807   1              OneTime[1].cdat[0] = 0;         // values (ORed)
+ 808   1              OneTime[1].cdat[1] = 0;
+ 809   1              OneTime[1].cdat[2] = 0;
+ 810   1              OneTime[1].cdat[3] = 0;
+ 811   1              OneTime[1].cdat[4] = 0x04;
+ 812   1              OneTime[1].cdat[5] = 0;
+ 813   1              OneTime[1].cdat[6] = 0;
+ 814   1              OneTime[1].cdat[7] = 0;
+ 815   1      //U8 SimpleButtonConfig(U8 button,U8 port,U32 ID,U8 mask[8],U8 value[8],count);
+ 816   1              SimpleButtonConfig(0,0,0x22D,OneTime[0].cdat,OneTime[1].cdat,4);
+ 817   1      
+ 818   1      
+ 819   1      
+ 820   1      
+ 821   1      /*************************************************************************
+ 822   1              RxMessage filters / traps
+ 823   1              Below example:
+ 824   1              First half, Watches for ID 0x6E8 on can port 1 (C).  Only byte 3 matters 
+ 825   1              as the mask is set to 0's for all else.  The matching value required in  
+ 826   1              byte 3 is 0x58. 8 bytes expected.
+ 827   1              Second half, configures output message 0x6E3 on port 1 (C). 8 bytes in 
+ 828   1              count.  mask is ANDed with cyclic message and ORed with value, but in 
+ 829   1              this example there is no cyclic message, therefor mask is ignored and 
+ 830   1              value is just output as the data 1 time. Take care to use the index value
+ 831   1              returned from the first function as input parameter to 2nd function
+ 832   1      **************************************************************************/
+ 833   1              OneTime[0].cdat[0] = 0;         // mask bits (0's don't cares, 1's are matches)
+ 834   1              OneTime[0].cdat[1] = 0;
+ 835   1              OneTime[0].cdat[2] = 0;         // using OneTime structure as temp storage
+ 836   1              OneTime[0].cdat[3] = 0xFF;      // this byte matters
+ 837   1              OneTime[0].cdat[4] = 0;
+ 838   1              OneTime[0].cdat[5] = 0;  
+ 839   1              OneTime[0].cdat[6] = 0;
+ 840   1              OneTime[0].cdat[7] = 0;
+ 841   1              OneTime[1].cdat[0] = 0;         // values (ORed)
+ 842   1              OneTime[1].cdat[1] = 0;
+ 843   1              OneTime[1].cdat[2] = 0;
+ 844   1              OneTime[1].cdat[3] = 0x58;      // selector switches to x58 causes triggers
+ 845   1              OneTime[1].cdat[4] = 0;
+ 846   1              OneTime[1].cdat[5] = 0;
+ 847   1              OneTime[1].cdat[6] = 0;
+ 848   1              OneTime[1].cdat[7] = 0;
+ 849   1      // configure Rx filter, look for this message match
+ 850   1      //U8 RxMessageConfig1(U8 port,U32 ID,U8 mask[8],U8 value[8],U8 count);
+ 851   1              index = RxMessageConfig1(1,0x6E8,OneTime[0].cdat,OneTime[1].cdat,8);
+ 852   1              OneTime[0].cdat[0] = 0xFF;      // mask bits (ANDed)
+ 853   1              OneTime[0].cdat[1] = 0xFF;
+ 854   1              OneTime[0].cdat[2] = 0xFF;      // using OneTime structure as temp storage
+ 855   1              OneTime[0].cdat[3] = 0xFF;
+ 856   1              OneTime[0].cdat[4] = 0xFF;
+ 857   1              OneTime[0].cdat[5] = 0xFF;
+ 858   1              OneTime[0].cdat[6] = 0xFF;
+ 859   1              OneTime[0].cdat[7] = 0xFF;
+ 860   1              OneTime[1].cdat[0] = 0x88;      // values (ORed)
+ 861   1              OneTime[1].cdat[1] = 0x99;
+C51 COMPILER V9.51   USER                                                                  09/19/2016 15:58:03 PAGE 15  
+
+ 862   1              OneTime[1].cdat[2] = 0xAA;
+ 863   1              OneTime[1].cdat[3] = 0xBB;
+ 864   1              OneTime[1].cdat[4] = 0xCC;
+ 865   1              OneTime[1].cdat[5] = 0xDD;
+ 866   1              OneTime[1].cdat[6] = 0xEE;
+ 867   1              OneTime[1].cdat[7] = 0xFF;
+ 868   1      // configure Tx output caused by above Recieved message
+ 869   1      //void RxMessageConfig2(U8 index,U8 outport,U32 outID,U8 outmask[8],U8 outvalue[8],U8 cnt,U8 altercnt);
+ 870   1              RxMessageConfig2(index,1,0x6E3,OneTime[0].cdat,OneTime[1].cdat,8,1);
+ 871   1      
+ 872   1      
+ 873   1      // Detect and set for English
+ 874   1              OneTime[0].cdat[0] = 0xFF;      // mask bits (0's don't cares, 1's are matches)
+ 875   1              OneTime[0].cdat[1] = 0xFF;
+ 876   1              OneTime[0].cdat[2] = 0xFF;      
+ 877   1              OneTime[1].cdat[0] = 0x0A;      // values (ORed)
+ 878   1              OneTime[1].cdat[1] = 0x03;
+ 879   1              OneTime[1].cdat[2] = 0x01;              // this byte must match
+ 880   1              index = RxMessageConfig1(0,0x314,OneTime[0].cdat,OneTime[1].cdat,3);
+ 881   1              OneTime[0].cdat[0] = 0xFF;      // mask bits (ANDed)
+ 882   1              OneTime[0].cdat[1] = 0;
+ 883   1              OneTime[0].cdat[2] = 0xFF;      
+ 884   1              OneTime[0].cdat[3] = 0xFF;
+ 885   1              OneTime[0].cdat[4] = 0xFF;
+ 886   1              OneTime[0].cdat[5] = 0;
+ 887   1              OneTime[0].cdat[6] = 0xFF;      // clear
+ 888   1              OneTime[0].cdat[7] = 0xFF;
+ 889   1              OneTime[1].cdat[0] = 0;         // values (ORed)
+ 890   1              OneTime[1].cdat[1] = 0x50;
+ 891   1              OneTime[1].cdat[2] = 0;
+ 892   1              OneTime[1].cdat[3] = 0;
+ 893   1              OneTime[1].cdat[4] = 0;
+ 894   1              OneTime[1].cdat[5] = 0x08;
+ 895   1              OneTime[1].cdat[6] = 0;         // write
+ 896   1              OneTime[1].cdat[7] = 0;         // note altercount = 0 means permanant
+ 897   1              RxMessageConfig2(index,0,0x332,OneTime[0].cdat,OneTime[1].cdat,8,0);
+ 898   1      
+ 899   1      // Detect and set for spa
+ 900   1              OneTime[0].cdat[0] = 0xFF;      // mask bits (0's don't cares, 1's are matches)
+ 901   1              OneTime[0].cdat[1] = 0xFF;
+ 902   1              OneTime[0].cdat[2] = 0xFF;      
+ 903   1              OneTime[1].cdat[0] = 0x0A;      // values (ORed)
+ 904   1              OneTime[1].cdat[1] = 0x03;
+ 905   1              OneTime[1].cdat[2] = 0x04;              // this byte must match
+ 906   1              index = RxMessageConfig1(0,0x314,OneTime[0].cdat,OneTime[1].cdat,3);
+ 907   1              OneTime[0].cdat[0] = 0xFF;      // mask bits (ANDed)
+ 908   1              OneTime[0].cdat[1] = 0;
+ 909   1              OneTime[0].cdat[2] = 0xFF;      
+ 910   1              OneTime[0].cdat[3] = 0xFF;
+ 911   1              OneTime[0].cdat[4] = 0xFF;
+ 912   1              OneTime[0].cdat[5] = 0;
+ 913   1              OneTime[0].cdat[6] = 0xFF;      // clear
+ 914   1              OneTime[0].cdat[7] = 0xFF;
+ 915   1              OneTime[1].cdat[0] = 0;         // values (ORed)
+ 916   1              OneTime[1].cdat[1] = 0x50;
+ 917   1              OneTime[1].cdat[2] = 0;
+ 918   1              OneTime[1].cdat[3] = 0;
+ 919   1              OneTime[1].cdat[4] = 0;
+ 920   1              OneTime[1].cdat[5] = 0x20;
+ 921   1              OneTime[1].cdat[6] = 0; // write
+ 922   1              OneTime[1].cdat[7] = 0;
+ 923   1              RxMessageConfig2(index,0,0x332,OneTime[0].cdat,OneTime[1].cdat,8,0);
+C51 COMPILER V9.51   USER                                                                  09/19/2016 15:58:03 PAGE 16  
+
+ 924   1      
+ 925   1      // Detect and set for ger
+ 926   1              OneTime[0].cdat[0] = 0xFF;      // mask bits (0's don't cares, 1's are matches)
+ 927   1              OneTime[0].cdat[1] = 0xFF;
+ 928   1              OneTime[0].cdat[2] = 0xFF;      
+ 929   1              OneTime[1].cdat[0] = 0x0A;      // values (ORed)
+ 930   1              OneTime[1].cdat[1] = 0x03;
+ 931   1              OneTime[1].cdat[2] = 0x00;              // this byte must match
+ 932   1              index = RxMessageConfig1(0,0x314,OneTime[0].cdat,OneTime[1].cdat,3);
+ 933   1              OneTime[0].cdat[0] = 0xFF;      // mask bits (ANDed)
+ 934   1              OneTime[0].cdat[1] = 0;
+ 935   1              OneTime[0].cdat[2] = 0xFF;      
+ 936   1              OneTime[0].cdat[3] = 0xFF;
+ 937   1              OneTime[0].cdat[4] = 0xFF;
+ 938   1              OneTime[0].cdat[5] = 0;
+ 939   1              OneTime[0].cdat[6] = 0xFF;      // clear
+ 940   1              OneTime[0].cdat[7] = 0xFF;
+ 941   1              OneTime[1].cdat[0] = 0;         // values (ORed)
+ 942   1              OneTime[1].cdat[1] = 0x50;
+ 943   1              OneTime[1].cdat[2] = 0;
+ 944   1              OneTime[1].cdat[3] = 0;
+ 945   1              OneTime[1].cdat[4] = 0;
+ 946   1              OneTime[1].cdat[5] = 0x00;
+ 947   1              OneTime[1].cdat[6] = 0;         // write
+ 948   1              OneTime[1].cdat[7] = 0;
+ 949   1              RxMessageConfig2(index,0,0x332,OneTime[0].cdat,OneTime[1].cdat,8,0);
+ 950   1      
+ 951   1      // Detect and set for fre
+ 952   1              OneTime[0].cdat[0] = 0xFF;      // mask bits (0's don't cares, 1's are matches)
+ 953   1              OneTime[0].cdat[1] = 0xFF;
+ 954   1              OneTime[0].cdat[2] = 0xFF;      
+ 955   1              OneTime[1].cdat[0] = 0x0A;      // values (ORed)
+ 956   1              OneTime[1].cdat[1] = 0x03;
+ 957   1              OneTime[1].cdat[2] = 0x02;              // this byte must match
+ 958   1              index = RxMessageConfig1(0,0x314,OneTime[0].cdat,OneTime[1].cdat,3);
+ 959   1              OneTime[0].cdat[0] = 0xFF;      // mask bits (ANDed)
+ 960   1              OneTime[0].cdat[1] = 0;
+ 961   1              OneTime[0].cdat[2] = 0xFF;      
+ 962   1              OneTime[0].cdat[3] = 0xFF;
+ 963   1              OneTime[0].cdat[4] = 0xFF;
+ 964   1              OneTime[0].cdat[5] = 0;
+ 965   1              OneTime[0].cdat[6] = 0xFF;      // clear
+ 966   1              OneTime[0].cdat[7] = 0xFF;
+ 967   1              OneTime[1].cdat[0] = 0;         // values (ORed)
+ 968   1              OneTime[1].cdat[1] = 0x50;
+ 969   1              OneTime[1].cdat[2] = 0;
+ 970   1              OneTime[1].cdat[3] = 0;
+ 971   1              OneTime[1].cdat[4] = 0;
+ 972   1              OneTime[1].cdat[5] = 0x10;
+ 973   1              OneTime[1].cdat[6] = 0; // write
+ 974   1              OneTime[1].cdat[7] = 0;
+ 975   1              RxMessageConfig2(index,0,0x332,OneTime[0].cdat,OneTime[1].cdat,8,0);
+ 976   1      
+ 977   1      // Detect and set for ita
+ 978   1              OneTime[0].cdat[0] = 0xFF;      // mask bits (0's don't cares, 1's are matches)
+ 979   1              OneTime[0].cdat[1] = 0xFF;
+ 980   1              OneTime[0].cdat[2] = 0xFF;      
+ 981   1              OneTime[1].cdat[0] = 0x0A;      // values (ORed)
+ 982   1              OneTime[1].cdat[1] = 0x03;
+ 983   1              OneTime[1].cdat[2] = 0x03;              // this byte must match
+ 984   1              index = RxMessageConfig1(0,0x314,OneTime[0].cdat,OneTime[1].cdat,3);
+ 985   1              OneTime[0].cdat[0] = 0xFF;      // mask bits (ANDed)
+C51 COMPILER V9.51   USER                                                                  09/19/2016 15:58:03 PAGE 17  
+
+ 986   1              OneTime[0].cdat[1] = 0;
+ 987   1              OneTime[0].cdat[2] = 0xFF;      
+ 988   1              OneTime[0].cdat[3] = 0xFF;
+ 989   1              OneTime[0].cdat[4] = 0xFF;
+ 990   1              OneTime[0].cdat[5] = 0;
+ 991   1              OneTime[0].cdat[6] = 0xFF;      // clear
+ 992   1              OneTime[0].cdat[7] = 0xFF;
+ 993   1              OneTime[1].cdat[0] = 0;         // values (ORed)
+ 994   1              OneTime[1].cdat[1] = 0x50;
+ 995   1              OneTime[1].cdat[2] = 0;
+ 996   1              OneTime[1].cdat[3] = 0;
+ 997   1              OneTime[1].cdat[4] = 0;
+ 998   1              OneTime[1].cdat[5] = 0x18;
+ 999   1              OneTime[1].cdat[6] = 0;         // write
+1000   1              OneTime[1].cdat[7] = 0;
+1001   1              RxMessageConfig2(index,0,0x332,OneTime[0].cdat,OneTime[1].cdat,8,0);
+1002   1      
+1003   1      // Detect and set for jap
+1004   1              OneTime[0].cdat[0] = 0xFF;      // mask bits (0's don't cares, 1's are matches)
+1005   1              OneTime[0].cdat[1] = 0xFF;
+1006   1              OneTime[0].cdat[2] = 0xFF;      
+1007   1              OneTime[1].cdat[0] = 0x0A;      // values (ORed)
+1008   1              OneTime[1].cdat[1] = 0x03;
+1009   1              OneTime[1].cdat[2] = 0x05;              // this byte must match
+1010   1              index = RxMessageConfig1(0,0x314,OneTime[0].cdat,OneTime[1].cdat,3);
+1011   1              OneTime[0].cdat[0] = 0xFF;      // mask bits (ANDed)
+1012   1              OneTime[0].cdat[1] = 0;
+1013   1              OneTime[0].cdat[2] = 0xFF;      
+1014   1              OneTime[0].cdat[3] = 0xFF;
+1015   1              OneTime[0].cdat[4] = 0xFF;
+1016   1              OneTime[0].cdat[5] = 0;
+1017   1              OneTime[0].cdat[6] = 0xFF;      // clear
+1018   1              OneTime[0].cdat[7] = 0xFF;
+1019   1              OneTime[1].cdat[0] = 0;         // values (ORed)
+1020   1              OneTime[1].cdat[1] = 0x50;
+1021   1              OneTime[1].cdat[2] = 0;
+1022   1              OneTime[1].cdat[3] = 0;
+1023   1              OneTime[1].cdat[4] = 0;
+1024   1              OneTime[1].cdat[5] = 0x28;
+1025   1              OneTime[1].cdat[6] = 0; // write
+1026   1              OneTime[1].cdat[7] = 0;
+1027   1              RxMessageConfig2(index,0,0x332,OneTime[0].cdat,OneTime[1].cdat,8,0);
+1028   1      
+1029   1      // Detect and set for chs
+1030   1              OneTime[0].cdat[0] = 0xFF;      // mask bits (0's don't cares, 1's are matches)
+1031   1              OneTime[0].cdat[1] = 0xFF;
+1032   1              OneTime[0].cdat[2] = 0xFF;      
+1033   1              OneTime[1].cdat[0] = 0x0A;      // values (ORed)
+1034   1              OneTime[1].cdat[1] = 0x03;
+1035   1              OneTime[1].cdat[2] = 0x09;              // this byte must match
+1036   1              index = RxMessageConfig1(0,0x314,OneTime[0].cdat,OneTime[1].cdat,3);
+1037   1              OneTime[0].cdat[0] = 0xFF;      // mask bits (ANDed)
+1038   1              OneTime[0].cdat[1] = 0;
+1039   1              OneTime[0].cdat[2] = 0xFF;      
+1040   1              OneTime[0].cdat[3] = 0xFF;
+1041   1              OneTime[0].cdat[4] = 0xFF;
+1042   1              OneTime[0].cdat[5] = 0;
+1043   1              OneTime[0].cdat[6] = 0xFF;      // clear
+1044   1              OneTime[0].cdat[7] = 0xFF;
+1045   1              OneTime[1].cdat[0] = 0;         // values (ORed)
+1046   1              OneTime[1].cdat[1] = 0x50;
+1047   1              OneTime[1].cdat[2] = 0;
+C51 COMPILER V9.51   USER                                                                  09/19/2016 15:58:03 PAGE 18  
+
+1048   1              OneTime[1].cdat[3] = 0;
+1049   1              OneTime[1].cdat[4] = 0;
+1050   1              OneTime[1].cdat[5] = 0x48;
+1051   1              OneTime[1].cdat[6] = 0; // write
+1052   1              OneTime[1].cdat[7] = 0;
+1053   1              RxMessageConfig2(index,0,0x332,OneTime[0].cdat,OneTime[1].cdat,8,0);
+1054   1      
+1055   1      // Detect and set for cht
+1056   1              OneTime[0].cdat[0] = 0xFF;      // mask bits (0's don't cares, 1's are matches)
+1057   1              OneTime[0].cdat[1] = 0xFF;
+1058   1              OneTime[0].cdat[2] = 0xFF;      
+1059   1              OneTime[1].cdat[0] = 0x0A;      // values (ORed)
+1060   1              OneTime[1].cdat[1] = 0x03;
+1061   1              OneTime[1].cdat[2] = 0x0E;      // this byte must match
+1062   1              index = RxMessageConfig1(0,0x314,OneTime[0].cdat,OneTime[1].cdat,3);
+1063   1              OneTime[0].cdat[0] = 0xFF;      // mask bits (ANDed)
+1064   1              OneTime[0].cdat[1] = 0;
+1065   1              OneTime[0].cdat[2] = 0xFF;      
+1066   1              OneTime[0].cdat[3] = 0xFF;
+1067   1              OneTime[0].cdat[4] = 0xFF;
+1068   1              OneTime[0].cdat[5] = 0;
+1069   1              OneTime[0].cdat[6] = 0xFF;      // clear
+1070   1              OneTime[0].cdat[7] = 0xFF;
+1071   1              OneTime[1].cdat[0] = 0;         // values (ORed)
+1072   1              OneTime[1].cdat[1] = 0x50;
+1073   1              OneTime[1].cdat[2] = 0;
+1074   1              OneTime[1].cdat[3] = 0;
+1075   1              OneTime[1].cdat[4] = 0;
+1076   1              OneTime[1].cdat[5] = 0x90;
+1077   1              OneTime[1].cdat[6] = 0; // write
+1078   1              OneTime[1].cdat[7] = 0;
+1079   1              RxMessageConfig2(index,0,0x332,OneTime[0].cdat,OneTime[1].cdat,8,0);
+1080   1      
+1081   1              // Configure Relay's
+1082   1              RelayCnf[3] = REL_IGN | 1 | REL_NOT;    // relay 4 comes on with Ignition switch setting not 1
+1083   1              //RelayCnf[2] = REL_BUTT | 1 | REL_TOG; // relay 3 toggles with button 1
+1084   1              //RelayCnf[1] = REL_RX | 0 | REL_PULSE; // relay 2 with first (0) rxtrap configured
+1085   1              //RelayCnf[0] = REL_TX | 3 | REL_PULSE; // relay 1 with 4th (3) TxMesg configured
+1086   1      
+1087   1      /*************************************************************************
+1088   1              User running loop 
+1089   1      **************************************************************************/
+1090   1              cnt = 0;
+1091   1              counter =0;
+1092   1              
+1093   1              while(!(keyChange & 0xF))
+1094   1              {
+1095   2                      
+1096   2                      if (RxCAN0)             // new message to process
+1097   2                      {
+1098   3                              for (index = 1 ; index < RX0BUFFERS && rxframe0[index].MsgNum>=RX0BUFFERS ; index++);
+1099   3      
+1100   3                              if (index < RX0BUFFERS)
+1101   3                              {
+1102   4                                      ProcessRx(0,index);
+1103   4                                      rxframe0[index].MsgNum = 0;
+1104   4                              }
+1105   3                              RxCAN0 = 0;
+1106   3                      }
+1107   2                      if (RxCAN1)             // new message to process
+1108   2                      {
+1109   3                              error = CAN1readStatus();
+C51 COMPILER V9.51   USER                                                                  09/19/2016 15:58:03 PAGE 19  
+
+1110   3      
+1111   3                              index = RX1BUFFERS;
+1112   3                              index1 = RX1BUFFERS;
+1113   3                              if (error & MCP_RX1IF)
+1114   3                                      index1 = CAN1read_canMsg( MCP_READ_RX1 );        
+1115   3                              if (error & MCP_RX0IF)
+1116   3                                      index = CAN1read_canMsg( MCP_READ_RX0 );        
+1117   3                              if (error = CAN1readRegister(MCP_EFLG))
+1118   3                              {
+1119   4                                      ErrCnt++;
+1120   4                                      AlterMessageByte(1,0x6E2,7,1,ErrCnt,0);
+1121   4      
+1122   4                                      if (error & MCP_EFLG_RX1OVR)
+1123   4                                              CAN1modifyRegister(MCP_EFLG,MCP_EFLG_RX1OVR,0);
+1124   4                                      if (error & MCP_EFLG_RX0OVR)
+1125   4                                              CAN1modifyRegister(MCP_EFLG,MCP_EFLG_RX0OVR,0);
+1126   4                              }
+1127   3      
+1128   3                              // clear int flags
+1129   3                              IE0 = 0;                                        // clear IE0 flag re-enabling interupt
+1130   3                              RxCAN1 = 0;                                     // clear my flag interupt occured
+1131   3                              EX0 = 1;                                        // enable CAN1 interupt
+1132   3      
+1133   3                              if (index < RX1BUFFERS)                         // process recieved message from Rx0
+1134   3                              {
+1135   4                                      ProcessRx(1,index);             // CAN1 messages
+1136   4                              }
+1137   3                              if (index1 < RX1BUFFERS)                        // process recieved message from Rx1
+1138   3                              {
+1139   4                                      ProcessRx(1,index1);
+1140   4                              }
+1141   3                      }
+1142   2      
+1143   2                      if (StartTicks + ONESEC < msticks )     // every second
+1144   2                      {
+1145   3                              StartTicks = msticks;
+1146   3                              LED1 ^= 1;
+1147   3      
+1148   3                              for (index1 = 0 ; index1 < TXBUFFS && OneTime[index1].arbID ; index1++);
+1149   3                              if (index1 < TXBUFFS)                           // empty one time available
+1150   3                              {
+1151   4                                      OneTime[index1].cdat[0] = (U8)(keys>>24);
+1152   4                                      OneTime[index1].cdat[1] = (U8)(keys>>16);
+1153   4                                      OneTime[index1].cdat[2] = (U8)(keys>>8);
+1154   4                                      OneTime[index1].cdat[3] = (U8)keys;
+1155   4                                      OneTime[index1].cdat[4] = CAN1readStatus();
+1156   4                                      OneTime[index1].cdat[5] = CAN1readRxStat();
+1157   4                                      OneTime[index1].cdat[6] = CAN1readRegister(MCP_CANSTAT);
+1158   4                                      OneTime[index1].cdat[7] = CAN1readRegister(MCP_CANINTF);
+1159   4                                      AlterMessageByte(0,0x6EA,0,OneTime[index1].cdat,8,1);
+1160   4                              }
+1161   3      
+1162   3                              // VIN
+1163   3                              for (index1 = 0 ; index1 < TXBUFFS && OneTime[index1].arbID ; index1++);
+1164   3                              if (index1 < TXBUFFS)                           // empty one time available
+1165   3                              {
+1166   4                                      switch (vin++)
+1167   4                                      {
+1168   5                                              case 0:
+1169   5                                                      OneTime[index1].cdat[0] = 0;
+1170   5                                                      for (index = 0 ; index < 7 ; index++)
+1171   5                                                              OneTime[index1].cdat[1+index] = VIN[index];
+C51 COMPILER V9.51   USER                                                                  09/19/2016 15:58:03 PAGE 20  
+
+1172   5                                                      break;
+1173   5                                              case 1:
+1174   5                                                      OneTime[index1].cdat[0] = 1;
+1175   5                                                      for (index = 7 ; index < 14 ; index++)
+1176   5                                                              OneTime[index1].cdat[index-6] = VIN[index];
+1177   5                                                      break;
+1178   5                                              case 2:
+1179   5                                                      OneTime[index1].cdat[0] = 2;
+1180   5                                                      for (index = 14 ; index < 17 ; index++)
+1181   5                                                              OneTime[index1].cdat[index-13] = VIN[index];
+1182   5                                                      vin = 0;
+1183   5                                                      break;
+1184   5                                      }
+1185   4                                      AlterMessageByte(0,0x3E0,0,OneTime[index1].cdat,8,0);
+1186   4                              }
+1187   3      
+1188   3                              if (counter++ >= 9)     // test every 10 seconds alter 6E2 message
+1189   3                              {
+1190   4                                      for (index1 = 0 ; index1 < TXBUFFS && OneTime[index1].arbID ; index1++);
+1191   4                                      if (index1 < TXBUFFS)                           // empty one time available
+1192   4                                      {
+1193   5                                              OneTime[index1].cdat[0] = cnt++;
+1194   5                                              AlterMessageByte(1,0x6E2,6,OneTime[index1].cdat,1,2);
+1195   5                                              counter = 0;
+1196   5                                      }
+1197   4                              }
+1198   3                      }
+1199   2      
+1200   2      
+1201   2                      if (RelayChange)
+1202   2                              CheckRelay();
+1203   2      
+1204   2                      // check for buttons pressed and process
+1205   2                      if (keyChange & 0xFFFFF00)      // At least one Buttons changed state
+1206   2                      {
+1207   3                              CheckButts();                   // SimpleButton Check
+1208   3      
+1209   3                              keyChange &= (U32)((BUTTONMASK<<8) & 0xFF);     // clear unused buttons
+1210   3                      }
+1211   2      
+1212   2      
+1213   2                      if (keyChange & 0xF0)           // Ignition change
+1214   2                      {
+1215   3                              // check if a relay is set to Ignition change
+1216   3                              for (index1 = 0 ; index1 < 4; index1++){
+1217   4                                      if ((RelayCnf[index1] & 0xF00) == REL_IGN)      // Relay controled by IGN select
+1218   4                                      {
+1219   5                                              if ((RelayCnf[index1]&0xFF) == ((keys>>4)&0xF)) // matching Select
+1220   5                                                      RelayChange |= 1<<index1;                       // flag for relay "on" change
+1221   5                                              else
+1222   5                                                      RelayChange |= 0x10<<index1;            // flag for relay "off" change
+1223   5                                      }
+1224   4                              }
+1225   3      
+1226   3                              for (index1 = 0 ; index1 < TXBUFFS && OneTime[index1].arbID ; index1++);
+1227   3                              if (index1 < TXBUFFS)                           // empty one time available
+1228   3                              {
+1229   4                                      IGN_OFF = 0;                    // default IGN_OFF flag to off
+1230   4                                      switch(keys & 0xF0)
+1231   4                                      {
+1232   5                                              case 0x10:      // IGN_OFF
+1233   5                                                      // ID 190, alter byte 0,1 
+C51 COMPILER V9.51   USER                                                                  09/19/2016 15:58:03 PAGE 21  
+
+1234   5                                                      OneTime[0].cdat[0] = 0x00;              //ignition run, start not active  04 = run ;02=ACC ;0D= NormalStar
+             -t, key in Ign,                                                
+1235   5                                                      OneTime[0].cdat[1] = 0x01;                      //key in ignition
+1236   5                                                      OneTime[0].cdat[2] = 0x00;              //ignition run, start not active  04 = run ;02=ACC ;0D= NormalStar
+             -t, key in Ign,                                                
+1237   5                                                      OneTime[0].cdat[3] = 0x00;      
+1238   5                                                      OneTime[0].sz = 4;
+1239   5                                                      OneTime[0].arbID = 0x122;
+1240   5      
+1241   5                                                      //OneTime[index1].cdat[0] = 0x00;               //ignition run, start not active  04 = run ;02=ACC ;0D= Nor
+             -malStart, key in Ign,                                                 
+1242   5                                                      //OneTime[index1].cdat[1] = 0x01;                       
+1243   5                                                      //AlterMessageByte(0,0x122,0,OneTime[index1].cdat,2,0);
+1244   5      
+1245   5      /*                                              // ID 98, alter bytes 2,3  
+1246   5                                                      OneTime[index1].cdat[0] = 0x0;                  // 0 speed                      
+1247   5                                                      OneTime[index1].cdat[1] = 0x0;
+1248   5                                                      OneTime[index1].cdat[2] = 0x0;
+1249   5                                                      OneTime[index1].cdat[3] = 0x0;
+1250   5                                                      OneTime[index1].cdat[4] = 0x0;                  // 0 speed                      
+1251   5                                                      OneTime[index1].cdat[5] = 0x0;
+1252   5                                                      OneTime[index1].cdat[6] = 0x0;
+1253   5                                                      OneTime[index1].cdat[7] = 0x0;
+1254   5                                                      AlterMessageByte(0,0x322,0,OneTime[index1].cdat,8,0); */
+1255   5                                                      IGN_OFF = 1;    // TURN on IGN_OFF flag
+1256   5                                                      IGN_OFF_FLG = 0;
+1257   5                                                      break;
+1258   5                                              case 0x20:      // IGN_ACC
+1259   5                                                      // ID 190, alter byte 0,1 
+1260   5                                                      OneTime[index1].cdat[0] = 0x03;         //ignition run, start not active  04 = run ;02=ACC ;0D= Norma
+             -lStart, key in Ign,                                           
+1261   5                                                      OneTime[index1].cdat[1] = 0x02;                 //key in ignition
+1262   5                                                      AlterMessageByte(0,0x122,0,OneTime[index1].cdat,2,0);
+1263   5      
+1264   5                                                      // ID 98, alter bytes 2,3  
+1265   5                                                      OneTime[index1].cdat[0] = 0x0;                  // 0 speed                      
+1266   5                                                      OneTime[index1].cdat[1] = 0x0;
+1267   5                                                      OneTime[index1].cdat[2] = 0x0;
+1268   5                                                      OneTime[index1].cdat[3] = 0x0;
+1269   5                                                      OneTime[index1].cdat[4] = 0x0;                  // 0 speed                      
+1270   5                                                      OneTime[index1].cdat[5] = 0x0;
+1271   5                                                      OneTime[index1].cdat[6] = 0x0;
+1272   5                                                      OneTime[index1].cdat[7] = 0x0;
+1273   5                                                      AlterMessageByte(0,0x322,0,OneTime[index1].cdat,8,0);
+1274   5                                                      IGN_OFF_FLG = 1;
+1275   5                                                      break;
+1276   5      
+1277   5                                              case 0x30:      // IGN_START
+1278   5                                                      // ID 190, alter byte 0,1 
+1279   5                                                      OneTime[index1].cdat[0] = 0x05;         //ignition run, start not active  04 = run ;02=ACC ;0D= Norma
+             -lStart, key in Ign,                                           
+1280   5                                                      OneTime[index1].cdat[1] = 0x02;                 //key in ignition
+1281   5                                                      AlterMessageByte(0,0x122,0,OneTime[index1].cdat,2,0);
+1282   5      
+1283   5                                                      // ID 98, alter bytes 2,3  
+1284   5                                                      OneTime[index1].cdat[0] = 0x0;                  // 0 speed                      
+1285   5                                                      OneTime[index1].cdat[1] = 0x0;
+1286   5                                                      OneTime[index1].cdat[2] = 0x0;
+1287   5                                                      OneTime[index1].cdat[3] = 0x0;
+1288   5                                                      OneTime[index1].cdat[4] = 0x0;                  // 0 speed                      
+1289   5                                                      OneTime[index1].cdat[5] = 0x0;
+1290   5                                                      OneTime[index1].cdat[6] = 0x0;
+C51 COMPILER V9.51   USER                                                                  09/19/2016 15:58:03 PAGE 22  
+
+1291   5                                                      OneTime[index1].cdat[7] = 0x0;
+1292   5                                                      AlterMessageByte(0,0x322,0,OneTime[index1].cdat,8,0);
+1293   5                                                      IGN_OFF_FLG = 1;
+1294   5                                                      break;
+1295   5                                              case 0x40:      // IGN_RUN_0
+1296   5                                                      // ID 190, alter byte 0,1 
+1297   5                                                      OneTime[index1].cdat[0] = 0x04;         //ignition run, start not active  04 = run ;02=ACC ;0D= Norma
+             -lStart, key in Ign,                                           
+1298   5                                                      OneTime[index1].cdat[1] = 0x02;                 //key in ignition
+1299   5                                                      AlterMessageByte(0,0x122,0,OneTime[index1].cdat,2,0);
+1300   5      
+1301   5                                                      // ID 98, alter bytes 2,3  
+1302   5                                                      OneTime[index1].cdat[0] = 0x0;                  // 0 speed                      
+1303   5                                                      OneTime[index1].cdat[1] = 0x0;
+1304   5                                                      OneTime[index1].cdat[2] = 0x0;
+1305   5                                                      OneTime[index1].cdat[3] = 0x0;
+1306   5                                                      OneTime[index1].cdat[4] = 0x0;                  // 0 speed                      
+1307   5                                                      OneTime[index1].cdat[5] = 0x0;
+1308   5                                                      OneTime[index1].cdat[6] = 0x0;
+1309   5                                                      OneTime[index1].cdat[7] = 0x0;
+1310   5                                                      AlterMessageByte(0,0x322,0,OneTime[index1].cdat,8,0);
+1311   5                                                      IGN_OFF_FLG = 1;
+1312   5                                                      break;
+1313   5                                              case 0x50:      // IGN_RUN_5
+1314   5                                              // ID 190, alter byte 0,1 
+1315   5                                                      OneTime[index1].cdat[0] = 0x04;         //ignition run, start not active  04 = run ;02=ACC ;0D= Norma
+             -lStart, key in Ign,                                           
+1316   5                                                      OneTime[index1].cdat[1] = 0x02;                 //key in ignition
+1317   5                                                      AlterMessageByte(0,0x122,0,OneTime[index1].cdat,2,0);
+1318   5      
+1319   5                                                      // ID 98, alter bytes 2,3  
+1320   5                                                      OneTime[index1].cdat[0] = 0x0;                  // 0 speed                      
+1321   5                                                      OneTime[index1].cdat[1] = 0x0;
+1322   5                                                      OneTime[index1].cdat[2] = 0x08;
+1323   5                                                      OneTime[index1].cdat[3] = 0x0C;
+1324   5                                                      OneTime[index1].cdat[4] = 0x0;                  // 0 speed                      
+1325   5                                                      OneTime[index1].cdat[5] = 0x0;
+1326   5                                                      OneTime[index1].cdat[6] = 0x0;
+1327   5                                                      OneTime[index1].cdat[7] = 0x0;
+1328   5                                                      AlterMessageByte(0,0x322,0,OneTime[index1].cdat,8,0);
+1329   5                                                      IGN_OFF_FLG = 1;
+1330   5                                                      break;
+1331   5                                              case 0x60:      // IGN_RUN_10
+1332   5                                              // ID 190, alter byte 0,1 
+1333   5                                                      OneTime[index1].cdat[0] = 0x04;         //ignition run, start not active  04 = run ;02=ACC ;0D= Norma
+             -lStart, key in Ign,                                           
+1334   5                                                      OneTime[index1].cdat[1] = 0x02;                 //key in ignition
+1335   5                                                      AlterMessageByte(0,0x122,0,OneTime[index1].cdat,2,0);
+1336   5      
+1337   5                                                      // ID 98, alter bytes 2,3  
+1338   5                                                      OneTime[index1].cdat[0] = 0x0;                  // 0 speed                      
+1339   5                                                      OneTime[index1].cdat[1] = 0x0;
+1340   5                                                      OneTime[index1].cdat[2] = 0x04;
+1341   5                                                      OneTime[index1].cdat[3] = 0x06;
+1342   5                                                      OneTime[index1].cdat[4] = 0x0;                  // 0 speed                      
+1343   5                                                      OneTime[index1].cdat[5] = 0x0;
+1344   5                                                      OneTime[index1].cdat[6] = 0x0;
+1345   5                                                      OneTime[index1].cdat[7] = 0x0;
+1346   5                                                      AlterMessageByte(0,0x322,0,OneTime[index1].cdat,8,0);
+1347   5                                                      IGN_OFF_FLG = 1;
+1348   5                                                      break;
+1349   5                                              
+C51 COMPILER V9.51   USER                                                                  09/19/2016 15:58:03 PAGE 23  
+
+1350   5                                              case 0x70:
+1351   5                                                      break;
+1352   5      
+1353   5                                              case 0x80:
+1354   5                                                      break;
+1355   5                                      }
+1356   4      
+1357   4                              keyChange &= ~0xF0;             // clear Ignition nibble
+1358   4                              }
+1359   3                      }
+1360   2                      
+1361   2              }
+1362   1      }
+1363          
+1364          void User2()    // program select 2
+1365          {       
+1366   1              U8 cnt=0;
+1367   1      
+1368   1              while(!(keyChange & 0xF))
+1369   1              {
+1370   2                      for (cnt = 0 ; cnt < 6 ; cnt++)
+1371   2                      {
+1372   3                              LED1 ^= 1;
+1373   3                              mSecDelay(100);
+1374   3                      }
+1375   2              mSecDelay(1400);
+1376   2              }
+1377   1      }
+1378          
+1379          void User3()    // program select 3
+1380          {       
+1381   1              U8 cnt=0;
+1382   1      
+1383   1              while(!(keyChange & 0xF))
+1384   1              {
+1385   2                      for (cnt = 0 ; cnt < 6 ; cnt++)
+1386   2                      {
+1387   3                              LED1 ^= 1;
+1388   3                              mSecDelay(100);
+1389   3                      }
+1390   2              mSecDelay(1400);
+1391   2              }
+1392   1      }
+1393          void User4()    // program select 4
+1394          {       
+1395   1              U8 cnt=0;
+1396   1      
+1397   1              while(!(keyChange & 0xF))
+1398   1              {
+1399   2                      for (cnt = 0 ; cnt < 8 ; cnt++)
+1400   2                      {
+1401   3                              LED1 ^= 1;
+1402   3                              mSecDelay(100);
+1403   3                      }
+1404   2              mSecDelay(1200);
+1405   2              }
+1406   1      }
+1407          void User5()    // program select 5
+1408          {       
+1409   1              U8 cnt=0;
+1410   1      
+1411   1              while(!(keyChange & 0xF))
+C51 COMPILER V9.51   USER                                                                  09/19/2016 15:58:03 PAGE 24  
+
+1412   1              {
+1413   2                      for (cnt = 0 ; cnt < 10 ; cnt++)
+1414   2                      {
+1415   3                              LED1 ^= 1;
+1416   3                              mSecDelay(100);
+1417   3                      }
+1418   2              mSecDelay(1000);
+1419   2              }
+1420   1      }
+1421          void User6()    // program select 6
+1422          {       
+1423   1              U8 cnt=0;
+1424   1      
+1425   1              while(!(keyChange & 0xF))
+1426   1              {
+1427   2                      for (cnt = 0 ; cnt < 12 ; cnt++)
+1428   2                      {
+1429   3                              LED1 ^= 1;
+1430   3                              mSecDelay(100);
+1431   3                      }
+1432   2              mSecDelay(800);
+1433   2              }
+1434   1      }
+1435          void User7()    // program select 7
+1436          {       
+1437   1              U8 cnt=0;
+1438   1      
+1439   1              while(!(keyChange & 0xF))
+1440   1              {
+1441   2                      for (cnt = 0 ; cnt < 14 ; cnt++)
+1442   2                      {
+1443   3                              LED1 ^= 1;
+1444   3                              mSecDelay(100);
+1445   3                      }
+1446   2              mSecDelay(600);
+1447   2              }
+1448   1      }
+1449          
+1450          void User8(void)        // example program select 8
+1451          {
+1452   1      }
+1453          
+1454          
+1455          
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =   6865    ----
+   CONSTANT SIZE    =     17    ----
+   XDATA SIZE       =   ----    ----
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =   ----      35
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----       1
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

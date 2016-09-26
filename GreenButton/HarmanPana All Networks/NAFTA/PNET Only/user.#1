@@ -33,7 +33,7 @@ void User1()	// program select 1, PNET
 	U8 Day_Night_mode=0x01;
 	bit IGN_OFF=1;
 
-	char VIN[17] = "2C3CDZBT4HH1111XM";
+	char VIN[17] = "1C3CCCCB7FN1124UC";
 
 	error = 0;	ErrCnt=0;
 
