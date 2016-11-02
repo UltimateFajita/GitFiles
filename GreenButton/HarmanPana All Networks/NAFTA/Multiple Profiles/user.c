@@ -3136,7 +3136,27 @@ void User3()	// program select 3 - Atlantis
 	OneTime[1].cdat[3] = 0;
 	SimpleButtonConfig(15,0,0x2EE,OneTime[0].cdat,OneTime[1].cdat,1);
 
-	// Radio Off
+	// Screen Off
+	OneTime[0].cdat[0] = 0xFF;	// mask bits (ANDed)
+	OneTime[0].cdat[1] = 0xFF;
+	OneTime[0].cdat[2] = 0xFF;		// using OneTime structure as temp storage
+	OneTime[0].cdat[3] = 0xFF;
+	OneTime[0].cdat[4] = 0xFF;		// values (ORed)
+	OneTime[0].cdat[5] = 0;
+	OneTime[0].cdat[6] = 0xFF;
+	OneTime[0].cdat[7] = 0xFF;
+	OneTime[1].cdat[0] = 0;	
+	OneTime[1].cdat[1] = 0;
+	OneTime[1].cdat[2] = 0;	
+	OneTime[1].cdat[3] = 0;
+	OneTime[1].cdat[4] = 0;
+	OneTime[1].cdat[5] = 0x04;
+	OneTime[1].cdat[6] = 0;
+	OneTime[1].cdat[7] = 0;
+	SimpleButtonConfig(5,0,0x41A,OneTime[0].cdat,OneTime[1].cdat,1); 
+	
+	
+/*	// Radio Off
 	OneTime[0].cdat[0] = 0xFF;	// mask bits (ANDed)
 	OneTime[0].cdat[1] = 0xFF;
 	OneTime[0].cdat[2] = 0xFF;		// using OneTime structure as temp storage
@@ -3153,7 +3173,7 @@ void User3()	// program select 3 - Atlantis
 	OneTime[1].cdat[5] = 0x10;
 	OneTime[1].cdat[6] = 0;
 	OneTime[1].cdat[7] = 0;
-	SimpleButtonConfig(5,0,0x41A,OneTime[0].cdat,OneTime[1].cdat,1); 
+	SimpleButtonConfig(5,0,0x41A,OneTime[0].cdat,OneTime[1].cdat,1); 	*/
 
 	//Mute
 	OneTime[0].cdat[0] = 0xFF;	// mask bits (ANDed)
@@ -4262,6 +4282,4 @@ void User7()	// program select 7
 void User8(void)	// example program select 8
 {
 }
-
-
 
