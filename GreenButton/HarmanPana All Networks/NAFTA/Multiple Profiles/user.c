@@ -1180,7 +1180,6 @@ void User1()	// program select 1 - CUSW
 						OneTime[index1].cdat[0] = 0x04;	      	//ignition run, start not active  04 = run ;02=ACC ;0D= NormalStart, key in Ign, 						
 						OneTime[index1].cdat[1] = 0x42;		  	//key in ignition
 						AlterMessageByte(0,0x190,0,OneTime[index1].cdat,2,0);
-
 						// ID 98, alter bytes 2,3  
 						OneTime[index1].cdat[0] = 0x0; 			// 0 speed			
 						OneTime[index1].cdat[1] = 0x0;
@@ -1937,7 +1936,6 @@ void User2()	// program select 2, PNET
 	OneTime[1].cdat[7] = 0;
 //U8 SimpleButtonConfig(U8 button,U8 port,U32 ID,U8 mask[8],U8 value[8],count);
 	SimpleButtonConfig(10,0,0x22D,OneTime[0].cdat,OneTime[1].cdat,1);
-
 	// Theft Alarm
 	OneTime[0].cdat[0] = 0xFF;	// mask bits (ANDed)
 	OneTime[0].cdat[1] = 0xFF;
@@ -2655,9 +2653,7 @@ void User3()	// program select 3 - Atlantis
 	OneTime[0].cdat[5] = 0;
 	OneTime[0].sz = 6;
 	OneTime[0].arbID = 0x3B4 | 0;
-
 //	AddMessage(0,0x3B4,20000,6,OneTime[0].cdat); 
-
 	/// PARK_INFO
 	OneTime[0].cdat[0] = 0;
 	OneTime[0].cdat[1] = 0;	// using OneTime structure as temp storage
@@ -3262,7 +3258,7 @@ void User3()	// program select 3 - Atlantis
 	OneTime[1].cdat[5] = 0;
 	OneTime[1].cdat[6] = 0;
 	OneTime[1].cdat[7] = 0;
-	SimpleButtonConfig(12,0,0x41A,OneTime[0].cdat,OneTime[1].cdat,7);
+	SimpleButtonConfig(2,0,0x41A,OneTime[0].cdat,OneTime[1].cdat,7);
 
 	// Night Mode
 	OneTime[0].cdat[0] = 0xFF;	// mask bits (ANDed)
@@ -3346,7 +3342,6 @@ void User3()	// program select 3 - Atlantis
 	OneTime[1].cdat[7] = 0;
 	SimpleButtonConfig(5,0,0x41A,OneTime[0].cdat,OneTime[1].cdat,1);
 	
-
 	// Mute
 	OneTime[0].cdat[0] = 0xFF;	// mask bits (ANDed)
 	OneTime[0].cdat[1] = 0xFF;
@@ -3364,7 +3359,6 @@ void User3()	// program select 3 - Atlantis
 	OneTime[1].cdat[5] = 0;
 	OneTime[1].cdat[6] = 0;
 	OneTime[1].cdat[7] = 0;
-
 	// Back
 	OneTime[0].cdat[0] = 0xFF;	// mask bits (ANDed)
 	OneTime[0].cdat[1] = 0xFF;
@@ -3396,7 +3390,6 @@ void User3()	// program select 3 - Atlantis
 	OneTime[1].cdat[2] = 0;
 	OneTime[1].cdat[3] = 0x04;
 	SimpleButtonConfig(3,0,0x2EE,OneTime[0].cdat,OneTime[1].cdat,1);
-
 	// ENG. Mode
 	OneTime[0].cdat[0] = 0xFF;	// mask bits (ANDed)
 	OneTime[0].cdat[1] = 0xFF;
@@ -3407,7 +3400,6 @@ void User3()	// program select 3 - Atlantis
 	OneTime[1].cdat[2] = 0;
 	OneTime[1].cdat[3] = 0x04;
 	SimpleButtonConfig(12,0,0x2EE,OneTime[0].cdat,OneTime[1].cdat,1);
-
 	// Dealer Mode
 	OneTime[0].cdat[0] = 0xFF;	// mask bits (ANDed)
 	OneTime[0].cdat[1] = 0xFF;
@@ -3418,7 +3410,6 @@ void User3()	// program select 3 - Atlantis
 	OneTime[1].cdat[2] = 0;
 	OneTime[1].cdat[3] = 0x04;
 	SimpleButtonConfig(2,0,0x2EE,OneTime[0].cdat,OneTime[1].cdat,1);
-
 	// 911
 	OneTime[0].cdat[0] = 0xFF;	// mask bits (ANDed)
 	OneTime[0].cdat[1] = 0xFF;
@@ -3429,7 +3420,6 @@ void User3()	// program select 3 - Atlantis
 	OneTime[1].cdat[2] = 0;
 	OneTime[1].cdat[3] = 0x04;
 	SimpleButtonConfig(11,0,0x2EE,OneTime[0].cdat,OneTime[1].cdat,1);
-
 	// Assist
 	OneTime[0].cdat[0] = 0xFF;	// mask bits (ANDed)
 	OneTime[0].cdat[1] = 0xFF;
@@ -3440,7 +3430,6 @@ void User3()	// program select 3 - Atlantis
 	OneTime[1].cdat[2] = 0;
 	OneTime[1].cdat[3] = 0x04;
 	SimpleButtonConfig(1,0,0x2EE,OneTime[0].cdat,OneTime[1].cdat,1);
-
 	// Door Ajar
 	OneTime[0].cdat[0] = 0xFF;	// mask bits (ANDed)
 	OneTime[0].cdat[1] = 0xFF;
@@ -3451,7 +3440,6 @@ void User3()	// program select 3 - Atlantis
 	OneTime[1].cdat[2] = 0;
 	OneTime[1].cdat[3] = 0x04;
 	SimpleButtonConfig(10,0,0x2EE,OneTime[0].cdat,OneTime[1].cdat,1);
-
 	// Theft Alarm
 	OneTime[0].cdat[0] = 0xFF;	// mask bits (ANDed)
 	OneTime[0].cdat[1] = 0xFF;
@@ -4282,4 +4270,3 @@ void User7()	// program select 7
 void User8(void)	// example program select 8
 {
 }
-
