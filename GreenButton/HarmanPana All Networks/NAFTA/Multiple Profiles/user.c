@@ -1411,7 +1411,8 @@ void User2()	// program select 2, PNET
 	OneTime[0].cdat[7] = 0;
 	AddMessage(0,0x3E0,1000,8,OneTime[0].cdat);  // VIN
 	
-	OneTime[0].cdat[0] = 0xFD;
+//	OneTime[0].cdat[0] = 0xFD;
+	OneTime[0].cdat[0] = 0xF5;
 	OneTime[0].cdat[1] = 0x0C;	
 	OneTime[0].cdat[2] = 0x10;
 	OneTime[0].cdat[3] = 0x08;
@@ -1478,7 +1479,7 @@ void User2()	// program select 2, PNET
 	OneTime[0].cdat[4] = 0x19;
 	OneTime[0].cdat[5] = 0x20; // A0 --> DSP_SK_PRSNT
 	OneTime[0].cdat[6] = 0;
-	OneTime[0].cdat[7] = 0x03;
+	OneTime[0].cdat[7] = 0x04;
 	AddMessage(0,0x3F2,2000,8,OneTime[0].cdat);  // EcuCfg3
 	
 	OneTime[0].cdat[0] = 0x01;
@@ -2702,8 +2703,8 @@ void User3()	// program select 3 - Atlantis
 	OneTime[0].cdat[5] = 0;
 	OneTime[0].cdat[6] = 0;
 	OneTime[0].cdat[7] = 0;
-	AddMessage(0,0x3E0,100,8,OneTime[0].cdat);
-//	AddMessage(0,0x3E0,1000,8,OneTime[0].cdat);
+//	AddMessage(0,0x3E0,100,8,OneTime[0].cdat);
+	AddMessage(0,0x3E0,1000,8,OneTime[0].cdat);
 
 /*	/// STATUS_CCAN3
 	OneTime[0].cdat[0] = 0;
