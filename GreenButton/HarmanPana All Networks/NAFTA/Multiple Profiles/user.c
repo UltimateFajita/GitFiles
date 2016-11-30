@@ -2502,8 +2502,8 @@ void User2()	// program select 2, PNET
 						// ID 98, alter bytes 2,3  
 						OneTime[index1].cdat[0] = 0x0; 			// 0 speed			
 						OneTime[index1].cdat[1] = 0x0;
-						OneTime[index1].cdat[2] = 0x08;
-						OneTime[index1].cdat[3] = 0x0C;
+						OneTime[index1].cdat[2] = 0x04;
+						OneTime[index1].cdat[3] = 0x06;
 						OneTime[index1].cdat[4] = 0x0; 			// 0 speed			
 						OneTime[index1].cdat[5] = 0x0;
 						OneTime[index1].cdat[6] = 0x0;
@@ -2520,8 +2520,8 @@ void User2()	// program select 2, PNET
 						// ID 98, alter bytes 2,3  
 						OneTime[index1].cdat[0] = 0x0; 			// 0 speed			
 						OneTime[index1].cdat[1] = 0x0;
-						OneTime[index1].cdat[2] = 0x04;
-						OneTime[index1].cdat[3] = 0x06;
+						OneTime[index1].cdat[2] = 0x08;
+						OneTime[index1].cdat[3] = 0x0C;
 						OneTime[index1].cdat[4] = 0x0; 			// 0 speed			
 						OneTime[index1].cdat[5] = 0x0;
 						OneTime[index1].cdat[6] = 0x0;
